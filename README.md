@@ -111,7 +111,8 @@ meteobar --location "Berlin" --icons weather
 meteobar --location "Berlin" --icons emoji
 # Output: ☀️ 23°
 
-# Font Awesome (requires otf-font-awesome)
+# Font Awesome (requires otf-font-awesome >= 7.0.0)
+# Icons are automatically wrapped in Pango markup for correct rendering
 meteobar --location "Berlin" --icons fontawesome
 ```
 

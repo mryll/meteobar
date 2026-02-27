@@ -107,9 +107,9 @@ pub fn get_icon(code: u8, is_day: bool, icon_set: &IconSet) -> IconInfo {
         (IconSet::Fontawesome, true) => entry.day_fa,
         (IconSet::Fontawesome, false) => entry.night_fa,
     };
-    // FA glyphs are narrower than Nerd/Weather icons; add trailing space for visual balance
+    // FA glyphs need Pango markup so Waybar uses the correct font (not the default monospace)
     let icon = if matches!(icon_set, IconSet::Fontawesome) {
-        format!("{raw} ")
+        format!("<span font='Font Awesome 7 Free Solid'>{raw}</span> ")
     } else {
         raw.to_string()
     };
