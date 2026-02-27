@@ -165,7 +165,7 @@ pub fn build_tooltip(
 
     let temp_line = format!(
         "  {} {}  {}  {} {}",
-        fg(C_TEXT, icon_info.icon),
+        fg(C_TEXT, &icon_info.icon),
         bold_fg(C_ACCENT, &format!("{temp}{unit_label}")),
         fg(C_DIM, icon_info.description),
         fg(C_DIM, "feels"),
@@ -287,7 +287,7 @@ fn build_daily_lines(
 
         let row = format!(
             "  {} {}  {} {}/{}{}{}",
-            fg(C_TEXT, icon_info.icon),
+            fg(C_TEXT, &icon_info.icon),
             bold_fg(C_TEXT, &format!("{:<6}", day_name)),
             fg(C_DIM, ""),
             fg(C_GREEN, &min.to_string()),
@@ -338,7 +338,7 @@ fn build_hourly_lines(
         let row = format!(
             "  {} {}  {} {}{}{}",
             fg(C_DIM, time_str),
-            fg(C_TEXT, icon_info.icon),
+            fg(C_TEXT, &icon_info.icon),
             fg(C_DIM, ""),
             fg(C_TEXT, &temp.to_string()),
             fg(C_DIM, unit_label),

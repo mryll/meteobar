@@ -1,5 +1,5 @@
 pub struct IconInfo {
-    pub icon: &'static str,
+    pub icon: String,
     pub css_class: &'static str,
     pub description: &'static str,
 }
@@ -97,7 +97,7 @@ fn find_entry(code: u8) -> &'static IconEntry {
 
 pub fn get_icon(code: u8, is_day: bool, icon_set: &IconSet) -> IconInfo {
     let entry = find_entry(code);
-    let icon = match (icon_set, is_day) {
+    let raw = match (icon_set, is_day) {
         (IconSet::Nerd, true) => entry.day_nerd,
         (IconSet::Nerd, false) => entry.night_nerd,
         (IconSet::Weather, true) => entry.day_weather,
@@ -106,6 +106,12 @@ pub fn get_icon(code: u8, is_day: bool, icon_set: &IconSet) -> IconInfo {
         (IconSet::Emoji, false) => entry.night_emoji,
         (IconSet::Fontawesome, true) => entry.day_fa,
         (IconSet::Fontawesome, false) => entry.night_fa,
+    };
+    // FA glyphs are narrower than Nerd/Weather icons; add trailing space for visual balance
+    let icon = if matches!(icon_set, IconSet::Fontawesome) {
+        format!("{raw} ")
+    } else {
+        raw.to_string()
     };
     IconInfo {
         icon,

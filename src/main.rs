@@ -246,7 +246,7 @@ fn build_output(
         .unwrap_or(0);
 
     let data = FormatData {
-        icon: icon_info.icon.to_string(),
+        icon: icon_info.icon,
         temp: format!("{}", current.temperature_2m.round() as i32),
         feels_like: format!(
             "{}",
