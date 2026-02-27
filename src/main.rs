@@ -209,12 +209,14 @@ fn resolve_location(
     }
 
     if let Some(ref location) = cli.location {
-        if let Some((lat, lon)) = cache::get_cached_location(cache_dir, location) {
-            return Ok(ResolvedLocation {
-                lat,
-                lon,
-                city: location.clone(),
-            });
+        if !cli.no_cache {
+            if let Some((lat, lon)) = cache::get_cached_location(cache_dir, location) {
+                return Ok(ResolvedLocation {
+                    lat,
+                    lon,
+                    city: location.clone(),
+                });
+            }
         }
         return api::geocode(client, location);
     }
@@ -309,8 +311,8 @@ fn build_output(
 }
 
 fn print_and_exit(output: WaybarOutput) {
-    if let Ok(json) = serde_json::to_string(&output) {
-        println!("{json}");
+    match serde_json::to_string(&output) {
+        Ok(json) => println!("{json}"),
+        Err(_) => println!(r#"{{"text":"?","tooltip":"serialization error","class":["error"],"alt":"error"}}"#),
     }
-    std::process::exit(0);
 }

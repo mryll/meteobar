@@ -8,18 +8,12 @@ A weather widget for [Waybar](https://github.com/Alexays/Waybar) using [Open-Met
 |---|---|---|
 | API reliability | wttr.in (frequent downtime) | Open-Meteo (stable, no limits) |
 | Offline fallback | None | Disk cache with stale indicator |
-| Day/night icons | No | Automatic (via sunrise/sunset) |
+| Day/night icons | No | Automatic (current weather) |
 | Format customization | Fixed flags | Template strings with placeholders |
 | CSS classes | No | Weather-condition based |
 | API key required | No | No |
 
 ## Installation
-
-### From crates.io
-
-```bash
-cargo install meteobar
-```
 
 ### From AUR (Arch Linux)
 
@@ -60,12 +54,13 @@ Options:
   --location <NAME>            City name (e.g., "Buenos Aires"). Auto-detects by IP if omitted.
   --lat <FLOAT>                Latitude (requires --lon)
   --lon <FLOAT>                Longitude (requires --lat)
+  --city-name <NAME>           Display name for the location (used with --lat/--lon)
   --format <TEMPLATE>          Bar text template [default: "{icon} {temp}°"]
   --tooltip-format <FORMAT>    Tooltip content: days, hours, both [default: days]
   --days <N>                   Forecast days in tooltip (1-7) [default: 3]
   --hours <N>                  Forecast hours in tooltip (0-24) [default: 0]
   --units <UNITS>              Unit system: metric, imperial [default: metric]
-  --icons <SET>                Icon set: nerd, weather, emoji [default: nerd]
+  --icons <SET>                Icon set for bar text: nerd, weather, emoji [default: nerd]
   --cache-dir <PATH>           Cache directory [default: ~/.cache/meteobar]
   --no-cache                   Disable cache
   --timeout <SECS>             HTTP timeout in seconds (1-60) [default: 10]
@@ -190,11 +185,13 @@ Multiple classes can be active at once (e.g., `["cloudy", "stale"]`).
 
 ## How It Works
 
-1. Resolves location (from `--location`, `--lat/--lon`, or auto-detect by IP)
+1. Resolves location (from `--location`, `--lat/--lon`, or auto-detect by IP via [ipapi.co](https://ipapi.co/))
 2. Fetches weather data from [Open-Meteo](https://open-meteo.com/) (free, no API key)
 3. Caches the response to `~/.cache/meteobar/last.json`
 4. If the API is unreachable, falls back to cached data (with `stale` CSS class)
 5. Outputs JSON that Waybar consumes (`text`, `tooltip`, `class`, `alt`)
+
+**Note:** The tooltip always uses Nerd Font icons for consistent monospace alignment, regardless of the `--icons` setting. The `--icons` flag controls the bar text only.
 
 ## License
 

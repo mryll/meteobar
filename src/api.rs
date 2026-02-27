@@ -88,6 +88,8 @@ pub fn geocode(client: &Client, city: &str) -> Result<ResolvedLocation, String> 
         .get(&url)
         .send()
         .map_err(|e| format!("geocoding request failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("geocoding HTTP error: {e}"))?
         .json()
         .map_err(|e| format!("geocoding parse failed: {e}"))?;
 
@@ -114,6 +116,8 @@ pub fn geolocate_ip(client: &Client) -> Result<ResolvedLocation, String> {
         .get("https://ipapi.co/json/")
         .send()
         .map_err(|e| format!("IP geolocation failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("IP geolocation HTTP error: {e}"))?
         .json()
         .map_err(|e| format!("IP geolocation parse failed: {e}"))?;
 
@@ -159,6 +163,8 @@ pub fn fetch_weather(
         .get(&url)
         .send()
         .map_err(|e| format!("weather fetch failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("weather HTTP error: {e}"))?
         .json()
         .map_err(|e| format!("weather parse failed: {e}"))?;
 
