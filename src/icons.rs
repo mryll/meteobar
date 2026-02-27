@@ -109,7 +109,7 @@ pub fn get_icon(code: u8, is_day: bool, icon_set: &IconSet) -> IconInfo {
     };
     // FA glyphs need Pango markup so Waybar uses the correct font (not the default monospace)
     let icon = if matches!(icon_set, IconSet::Fontawesome) {
-        format!("<span font='Font Awesome 7 Free Solid'>{raw}</span> ")
+        format!("<span font='Font Awesome 7 Free Solid'>{raw}</span>")
     } else {
         raw.to_string()
     };
