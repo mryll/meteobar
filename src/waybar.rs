@@ -115,6 +115,7 @@ fn rain_icon(icon_set: &IconSet) -> &'static str {
         IconSet::Nerd => "󰖗",
         IconSet::Weather => "\u{e318}",
         IconSet::Emoji => "💧",
+        IconSet::Fontawesome => "\u{f73d}",
     }
 }
 

@@ -62,7 +62,7 @@ Options:
   --days <N>                   Forecast days in tooltip (1-7) [default: 3]
   --hours <N>                  Forecast hours in tooltip (0-24) [default: 0]
   --units <UNITS>              Unit system: metric, imperial [default: metric]
-  --icons <SET>                Icon set for bar text: nerd, weather, emoji [default: nerd]
+  --icons <SET>                Icon set for bar text: nerd, weather, emoji, fontawesome [default: nerd]
   --cache-dir <PATH>           Cache directory [default: ~/.cache/meteobar]
   --no-cache                   Disable cache
   --timeout <SECS>             HTTP timeout in seconds (1-60) [default: 10]
@@ -110,6 +110,9 @@ meteobar --location "Berlin" --icons weather
 # Emoji mode
 meteobar --location "Berlin" --icons emoji
 # Output: ☀️ 23°
+
+# Font Awesome (requires otf-font-awesome)
+meteobar --location "Berlin" --icons fontawesome
 ```
 
 ## CSS Classes
