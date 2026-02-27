@@ -198,6 +198,8 @@ Multiple classes can be active at once (e.g., `["cloudy", "stale"]`).
 
 **Note:** The tooltip always uses Nerd Font icons for consistent monospace alignment, regardless of the `--icons` setting. The `--icons` flag controls the bar text only.
 
+**Theming:** Tooltip colors are automatically detected from the active [Omarchy](https://github.com/pablopunk/omarchy) theme (`~/.config/omarchy/current/theme/colors.toml`). When not running on Omarchy, One Dark colors are used as fallback.
+
 ## License
 
 MIT

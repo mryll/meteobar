@@ -4,6 +4,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::api::{DailyForecast, HourlyForecast, WeatherData};
 use crate::format::degrees_to_cardinal;
 use crate::icons::{get_icon, IconSet};
+use crate::theme::ThemeColors;
 
 #[derive(Serialize)]
 pub struct WaybarOutput {
@@ -19,15 +20,6 @@ pub enum TooltipFormat {
     Hours,
     Both,
 }
-
-// One Dark theme colors (matching claude-usage tooltip)
-const C_BORDER: &str = "#61afef";
-const C_TEXT: &str = "#abb2bf";
-const C_DIM: &str = "#5c6370";
-const C_ACCENT: &str = "#61afef";
-const C_GREEN: &str = "#98c379";
-const C_YELLOW: &str = "#e5c07b";
-const C_ORANGE: &str = "#d19a66";
 
 const MIN_WIDTH: usize = 20;
 
@@ -45,30 +37,30 @@ fn bold_fg(color: &str, text: &str) -> String {
     format!("<span font_weight='bold' foreground='{color}'>{text}</span>")
 }
 
-fn border_line(content: &str, width: usize) -> String {
+fn border_line(content: &str, width: usize, border_color: &str) -> String {
     let pad = width.saturating_sub(visible_len(content));
     let right_pad = " ".repeat(pad);
     format!(
         "{} {content}{right_pad} {}",
-        fg(C_BORDER, "│"),
-        fg(C_BORDER, "│")
+        fg(border_color, "│"),
+        fg(border_color, "│")
     )
 }
 
-fn separator(width: usize) -> String {
-    border_line(&fg(C_DIM, &"─".repeat(width)), width)
+fn separator(width: usize, border_color: &str, dim_color: &str) -> String {
+    border_line(&fg(dim_color, &"─".repeat(width)), width, border_color)
 }
 
-fn empty_line(width: usize) -> String {
-    border_line(&" ".repeat(width), width)
+fn empty_line(width: usize, border_color: &str) -> String {
+    border_line(&" ".repeat(width), width, border_color)
 }
 
-fn top_border(width: usize) -> String {
-    fg(C_BORDER, &format!("╭{}╮", "─".repeat(width + 2)))
+fn top_border(width: usize, border_color: &str) -> String {
+    fg(border_color, &format!("╭{}╮", "─".repeat(width + 2)))
 }
 
-fn bottom_border(width: usize) -> String {
-    fg(C_BORDER, &format!("╰{}╯", "─".repeat(width + 2)))
+fn bottom_border(width: usize, border_color: &str) -> String {
+    fg(border_color, &format!("╰{}╯", "─".repeat(width + 2)))
 }
 
 fn visible_len(s: &str) -> usize {
@@ -100,13 +92,13 @@ fn visible_len(s: &str) -> usize {
     plain.width()
 }
 
-fn rain_color(pct: u8) -> &'static str {
+fn rain_color<'a>(pct: u8, colors: &'a ThemeColors) -> &'a str {
     if pct >= 60 {
-        C_ACCENT
+        &colors.accent
     } else if pct >= 30 {
-        C_YELLOW
+        &colors.yellow
     } else {
-        C_GREEN
+        &colors.green
     }
 }
 
@@ -136,6 +128,7 @@ pub fn build_tooltip(
     days: u8,
     hours: u8,
     unit_label: &str,
+    colors: &ThemeColors,
 ) -> String {
     let current = &data.current;
     let temp = current.temperature_2m.round() as i32;
@@ -159,35 +152,38 @@ pub fn build_tooltip(
     let icon_info = get_icon(current.weather_code, current.is_day == 1, tooltip_icons);
     let speed_unit = if unit_label == "°F" { "mph" } else { "km/h" };
 
+    let (c_border, c_text, c_dim, c_accent) =
+        (&colors.border, &colors.text, &colors.dim, &colors.accent);
+
     // Phase 1: Build all content strings (without borders)
     let title_raw = pango_escape(city);
     let title_vlen = visible_len(&title_raw);
 
     let temp_line = format!(
         "  {} {}  {}  {} {}",
-        fg(C_TEXT, &icon_info.icon),
-        bold_fg(C_ACCENT, &format!("{temp}{unit_label}")),
-        fg(C_DIM, icon_info.description),
-        fg(C_DIM, "feels"),
-        fg(C_DIM, &format!("{feels}{unit_label}"))
+        fg(c_text, &icon_info.icon),
+        bold_fg(c_accent, &format!("{temp}{unit_label}")),
+        fg(c_dim, icon_info.description),
+        fg(c_dim, "feels"),
+        fg(c_dim, &format!("{feels}{unit_label}"))
     );
 
     let stats1 = format!(
         "  {}  {}{}   {}  {} {} {}",
-        fg(C_ACCENT, "󰖎"),
-        fg(C_TEXT, &humidity.to_string()),
-        fg(C_DIM, "%"),
-        fg(C_ACCENT, "󰖝"),
-        fg(C_TEXT, &wind.to_string()),
-        fg(C_DIM, speed_unit),
-        fg(C_DIM, wind_dir),
+        fg(c_accent, "󰖎"),
+        fg(c_text, &humidity.to_string()),
+        fg(c_dim, "%"),
+        fg(c_accent, "󰖝"),
+        fg(c_text, &wind.to_string()),
+        fg(c_dim, speed_unit),
+        fg(c_dim, wind_dir),
     );
 
     let stats2 = format!(
         "  {}  {} {}",
-        fg(C_ACCENT, "󰖏"),
-        fg(C_TEXT, &pressure.to_string()),
-        fg(C_DIM, "hPa"),
+        fg(c_accent, "󰖏"),
+        fg(c_text, &pressure.to_string()),
+        fg(c_dim, "hPa"),
     );
 
     let show_days = matches!(tooltip_format, TooltipFormat::Days | TooltipFormat::Both);
@@ -196,14 +192,14 @@ pub fn build_tooltip(
     let hourly_lines = if show_hours && hours > 0 {
         data.hourly
             .as_ref()
-            .map(|h| build_hourly_lines(h, hours, tooltip_icons, unit_label))
+            .map(|h| build_hourly_lines(h, hours, tooltip_icons, unit_label, colors))
             .unwrap_or_default()
     } else {
         Vec::new()
     };
 
     let daily_lines = if show_days {
-        build_daily_lines(&data.daily, days, tooltip_icons, unit_label)
+        build_daily_lines(&data.daily, days, tooltip_icons, unit_label, colors)
     } else {
         Vec::new()
     };
@@ -220,38 +216,38 @@ pub fn build_tooltip(
 
     // Phase 3: Build bordered output
     let mut lines = Vec::new();
-    lines.push(top_border(width));
+    lines.push(top_border(width, c_border));
 
-    let title_pango = bold_fg(C_ACCENT, &title_raw);
+    let title_pango = bold_fg(c_accent, &title_raw);
     let left_pad = (width.saturating_sub(title_vlen)) / 2;
     let padded_title = format!("{}{}", " ".repeat(left_pad), title_pango);
-    lines.push(border_line(&padded_title, width));
+    lines.push(border_line(&padded_title, width, c_border));
 
-    lines.push(separator(width));
-    lines.push(border_line(&temp_line, width));
-    lines.push(empty_line(width));
-    lines.push(border_line(&stats1, width));
-    lines.push(border_line(&stats2, width));
+    lines.push(separator(width, c_border, c_dim));
+    lines.push(border_line(&temp_line, width, c_border));
+    lines.push(empty_line(width, c_border));
+    lines.push(border_line(&stats1, width, c_border));
+    lines.push(border_line(&stats2, width, c_border));
 
     if !hourly_lines.is_empty() {
-        lines.push(separator(width));
-        lines.push(border_line(&bold_fg(C_TEXT, "  Hourly"), width));
-        lines.push(empty_line(width));
+        lines.push(separator(width, c_border, c_dim));
+        lines.push(border_line(&bold_fg(c_text, "  Hourly"), width, c_border));
+        lines.push(empty_line(width, c_border));
         for line in &hourly_lines {
-            lines.push(border_line(line, width));
+            lines.push(border_line(line, width, c_border));
         }
     }
 
     if !daily_lines.is_empty() {
-        lines.push(separator(width));
-        lines.push(border_line(&bold_fg(C_TEXT, "  Forecast"), width));
-        lines.push(empty_line(width));
+        lines.push(separator(width, c_border, c_dim));
+        lines.push(border_line(&bold_fg(c_text, "  Forecast"), width, c_border));
+        lines.push(empty_line(width, c_border));
         for line in &daily_lines {
-            lines.push(border_line(line, width));
+            lines.push(border_line(line, width, c_border));
         }
     }
 
-    lines.push(bottom_border(width));
+    lines.push(bottom_border(width, c_border));
     lines.join("\n")
 }
 
@@ -260,6 +256,7 @@ fn build_daily_lines(
     days: u8,
     icon_set: &IconSet,
     unit_label: &str,
+    colors: &ThemeColors,
 ) -> Vec<String> {
     let count = (days as usize).min(daily.time.len());
     let mut lines = Vec::new();
@@ -276,10 +273,11 @@ fn build_daily_lines(
             .unwrap_or(0);
 
         let rain_str = if rain > 0 {
+            let rc = rain_color(rain, colors);
             format!(
                 "  {}  {}",
-                fg(rain_color(rain), rain_icon(icon_set)),
-                fg(rain_color(rain), &format!("{rain}%"))
+                fg(rc, rain_icon(icon_set)),
+                fg(rc, &format!("{rain}%"))
             )
         } else {
             String::new()
@@ -287,12 +285,12 @@ fn build_daily_lines(
 
         let row = format!(
             "  {} {}  {} {}/{}{}{}",
-            fg(C_TEXT, &icon_info.icon),
-            bold_fg(C_TEXT, &format!("{:<6}", day_name)),
-            fg(C_DIM, ""),
-            fg(C_GREEN, &min.to_string()),
-            fg(C_ORANGE, &max.to_string()),
-            fg(C_DIM, unit_label),
+            fg(&colors.text, &icon_info.icon),
+            bold_fg(&colors.text, &format!("{:<6}", day_name)),
+            fg(&colors.dim, ""),
+            fg(&colors.green, &min.to_string()),
+            fg(&colors.orange, &max.to_string()),
+            fg(&colors.dim, unit_label),
             rain_str,
         );
         lines.push(row);
@@ -305,6 +303,7 @@ fn build_hourly_lines(
     hours: u8,
     icon_set: &IconSet,
     unit_label: &str,
+    colors: &ThemeColors,
 ) -> Vec<String> {
     let count = (hours as usize).min(hourly.time.len());
     let mut lines = Vec::new();
@@ -330,18 +329,18 @@ fn build_hourly_lines(
             .unwrap_or(0);
 
         let rain_str = if rain > 0 {
-            format!("  {}", fg(rain_color(rain), &format!("{rain}%")))
+            format!("  {}", fg(rain_color(rain, colors), &format!("{rain}%")))
         } else {
             String::new()
         };
 
         let row = format!(
             "  {} {}  {} {}{}{}",
-            fg(C_DIM, time_str),
-            fg(C_TEXT, &icon_info.icon),
-            fg(C_DIM, ""),
-            fg(C_TEXT, &temp.to_string()),
-            fg(C_DIM, unit_label),
+            fg(&colors.dim, time_str),
+            fg(&colors.text, &icon_info.icon),
+            fg(&colors.dim, ""),
+            fg(&colors.text, &temp.to_string()),
+            fg(&colors.dim, unit_label),
             rain_str,
         );
         lines.push(row);
@@ -357,18 +356,18 @@ fn short_day_name(date_str: &str) -> String {
     }
 }
 
-pub fn error_output(message: &str) -> WaybarOutput {
-    let header = bold_fg("#e06c75", "  meteobar error");
-    let body = fg(C_DIM, &format!("  {}", pango_escape(message)));
+pub fn error_output(message: &str, colors: &ThemeColors) -> WaybarOutput {
+    let header = bold_fg(&colors.error, "  meteobar error");
+    let body = fg(&colors.dim, &format!("  {}", pango_escape(message)));
 
     let width = content_width(&[&header, &body]);
 
     let lines = [
-        top_border(width),
-        border_line(&header, width),
-        separator(width),
-        border_line(&body, width),
-        bottom_border(width),
+        top_border(width, &colors.border),
+        border_line(&header, width, &colors.border),
+        separator(width, &colors.border, &colors.dim),
+        border_line(&body, width, &colors.border),
+        bottom_border(width, &colors.border),
     ];
 
     WaybarOutput {

@@ -2,6 +2,7 @@ mod api;
 mod cache;
 mod format;
 mod icons;
+mod theme;
 mod waybar;
 
 use std::path::PathBuf;
@@ -66,6 +67,7 @@ enum CliUnits {
 
 fn main() {
     let cli = Cli::parse();
+    let colors = theme::ThemeColors::load();
 
     let cache_dir = cli
         .cache_dir
@@ -111,15 +113,15 @@ fn main() {
                 };
                 let _ = cache::save(&entry, &cache_dir);
             }
-            let output = build_output(&weather, &city, &cli, unit_label, false);
+            let output = build_output(&weather, &city, &cli, unit_label, false, &colors);
             print_and_exit(output);
         }
         PipelineResult::Stale { weather, city } => {
-            let output = build_output(&weather, &city, &cli, unit_label, true);
+            let output = build_output(&weather, &city, &cli, unit_label, true, &colors);
             print_and_exit(output);
         }
         PipelineResult::Error(msg) => {
-            let output = waybar::error_output(&msg);
+            let output = waybar::error_output(&msg, &colors);
             print_and_exit(output);
         }
     }
@@ -230,6 +232,7 @@ fn build_output(
     cli: &Cli,
     unit_label: &str,
     stale: bool,
+    colors: &theme::ThemeColors,
 ) -> WaybarOutput {
     let icon_info = icons::get_icon(
         weather.current.weather_code,
@@ -295,6 +298,7 @@ fn build_output(
         cli.days,
         cli.hours,
         unit_label,
+        colors,
     );
 
     let mut class = vec![icon_info.css_class.to_string()];
