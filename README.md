@@ -37,7 +37,7 @@ cp target/release/meteobar ~/.local/bin/
 Add to your Waybar config (`~/.config/waybar/config.jsonc`):
 
 ```jsonc
-"custom/weather": {
+"custom/meteobar": {
     "exec": "meteobar --location 'Buenos Aires'",
     "return-type": "json",
     "interval": 900,
@@ -136,11 +136,11 @@ Multiple classes can be active at once (e.g., `["cloudy", "stale"]`).
 ### Example CSS
 
 ```css
-#custom-weather.clear { color: #e5c07b; }
-#custom-weather.rainy { color: #81a1c1; }
-#custom-weather.snowy { color: #88c0d0; }
-#custom-weather.stormy { color: #bf616a; }
-#custom-weather.stale { opacity: 0.6; }
+#custom-meteobar.clear { color: #e5c07b; }
+#custom-meteobar.rainy { color: #81a1c1; }
+#custom-meteobar.snowy { color: #88c0d0; }
+#custom-meteobar.stormy { color: #bf616a; }
+#custom-meteobar.stale { opacity: 0.6; }
 ```
 
 ## Waybar Config Examples
@@ -148,7 +148,7 @@ Multiple classes can be active at once (e.g., `["cloudy", "stale"]`).
 ### Minimal
 
 ```jsonc
-"custom/weather": {
+"custom/meteobar": {
     "exec": "meteobar --location 'Tokyo'",
     "return-type": "json",
     "interval": 900,
@@ -159,7 +159,7 @@ Multiple classes can be active at once (e.g., `["cloudy", "stale"]`).
 ### With format and emoji
 
 ```jsonc
-"custom/weather": {
+"custom/meteobar": {
     "exec": "meteobar --location 'New York' --icons emoji --format '{icon} {temp}° {description}'",
     "return-type": "json",
     "interval": 900,
@@ -170,7 +170,7 @@ Multiple classes can be active at once (e.g., `["cloudy", "stale"]`).
 ### Imperial units with hourly forecast
 
 ```jsonc
-"custom/weather": {
+"custom/meteobar": {
     "exec": "meteobar --location 'London' --units imperial --tooltip-format both --hours 6",
     "return-type": "json",
     "interval": 900,
@@ -181,7 +181,7 @@ Multiple classes can be active at once (e.g., `["cloudy", "stale"]`).
 ### Auto-detect location by IP
 
 ```jsonc
-"custom/weather": {
+"custom/meteobar": {
     "exec": "meteobar",
     "return-type": "json",
     "interval": 900,

@@ -301,10 +301,11 @@ fn build_output(
         colors,
     );
 
-    let mut class = vec![icon_info.css_class.to_string()];
-    if stale {
-        class.push("stale".to_string());
-    }
+    let class = if stale {
+        vec!["stale".to_string()]
+    } else {
+        vec![]
+    };
 
     WaybarOutput {
         text,
