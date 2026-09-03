@@ -183,6 +183,10 @@ pub fn build_tooltip(
     let wind = current.wind_speed_10m.unwrap_or(0.0).round() as i32;
     let wind_dir = degrees_to_cardinal(current.wind_direction_10m.unwrap_or(0.0));
     let pressure = current.pressure_msl.unwrap_or(0.0).round() as i32;
+    // One decimal: the UV index is published on a 0-11+ scale where the whole
+    // number is the band, so rounding to an integer would move a reading across
+    // a band boundary the WHO defines.
+    let uv = current.uv_index.map(|v| format!("{v:.1}"));
     // Tooltip always uses Nerd Font icons for consistent monospace alignment.
     // Pango renders emoji from a separate font with different glyph metrics,
     // breaking box-drawing border alignment. Nerd icons are part of the
@@ -218,12 +222,20 @@ pub fn build_tooltip(
         p.fg(c_dim, wind_dir),
     );
 
-    let stats2 = format!(
+    let mut stats2 = format!(
         "  {}  {} {}",
         p.fg(c_accent, "󰖏"),
         p.fg(c_text, &pressure.to_string()),
         p.fg(c_dim, "hPa"),
     );
+    if let Some(uv) = &uv {
+        stats2.push_str(&format!(
+            "   {}  {} {}",
+            p.fg(c_accent, "\u{f0599}"),
+            p.fg(c_text, uv),
+            p.fg(c_dim, "UV"),
+        ));
+    }
 
     let show_days = matches!(tooltip_format, TooltipFormat::Days | TooltipFormat::Both);
     let show_hours = matches!(tooltip_format, TooltipFormat::Hours | TooltipFormat::Both);
