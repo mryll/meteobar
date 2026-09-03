@@ -89,6 +89,11 @@ Panel {
   readonly property int refreshMinutes: Math.max(1, parseInt(setting("refreshMinutes", 15), 10) || 15)
   readonly property string unitsSetting: String(setting("units", "metric")) === "imperial" ? "imperial" : "metric"
   readonly property string locationSetting: String(setting("location", "")).trim()
+  // Empty means "not set" — the CLI falls back to LC_MESSAGES/LANG, then
+  // English, on its own. Not exposed in manifest.json: unlike units, this
+  // has a sensible automatic default, so it is set (if at all) by editing
+  // shell.json directly, the same path units already takes.
+  readonly property string languageSetting: String(setting("language", "")).trim()
   readonly property string iconSetSetting: {
     var v = String(setting("iconSet", "nerd"))
     return ["nerd", "weather", "emoji", "fontawesome"].indexOf(v) >= 0 ? v : "nerd"
@@ -110,7 +115,7 @@ Panel {
   readonly property bool barColored: colorMode === "full" || colorMode === "bar-only"
 
   // Refetch when any setting that changes the payload changes.
-  readonly property string fetchKey: unitsSetting + "|" + locationSetting + "|" + iconSetSetting
+  readonly property string fetchKey: unitsSetting + "|" + locationSetting + "|" + iconSetSetting + "|" + languageSetting
   onFetchKeyChanged: Qt.callLater(refresh)
 
   // Open with fresh data. open/close/toggle shadow the Panel base so every
@@ -214,6 +219,10 @@ Panel {
     if (locationSetting !== "") {
       cmd.push("--location")
       cmd.push(locationSetting)
+    }
+    if (languageSetting !== "") {
+      cmd.push("--language")
+      cmd.push(languageSetting)
     }
     return cmd
   }

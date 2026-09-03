@@ -1,3 +1,5 @@
+use crate::i18n::Language;
+
 pub struct IconInfo {
     pub icon: String,
     pub css_class: &'static str,
@@ -487,6 +489,15 @@ fn find_entry(code: u8) -> &'static IconEntry {
         .unwrap_or(&ICONS[0].1)
 }
 
+/// Every condition string this table knows, in table order. The single
+/// source `i18n`'s completeness test checks translations against, so a new
+/// WMO code added here without a German entry fails the build, not silently
+/// ships untranslated.
+#[cfg(test)]
+pub(crate) fn all_descriptions() -> impl Iterator<Item = &'static str> {
+    ICONS.iter().map(|(_, entry)| entry.description)
+}
+
 fn raw_glyph(entry: &'static IconEntry, is_day: bool, icon_set: &IconSet) -> &'static str {
     match (icon_set, is_day) {
         (IconSet::Nerd, true) => entry.day_nerd,
@@ -500,7 +511,7 @@ fn raw_glyph(entry: &'static IconEntry, is_day: bool, icon_set: &IconSet) -> &'s
     }
 }
 
-pub fn get_icon(code: u8, is_day: bool, icon_set: &IconSet) -> IconInfo {
+pub fn get_icon(code: u8, is_day: bool, icon_set: &IconSet, language: Language) -> IconInfo {
     let entry = find_entry(code);
     let raw = raw_glyph(entry, is_day, icon_set);
     // FA glyphs need Pango markup so Waybar uses the correct font (not the default monospace)
@@ -512,17 +523,17 @@ pub fn get_icon(code: u8, is_day: bool, icon_set: &IconSet) -> IconInfo {
     IconInfo {
         icon,
         css_class: entry.css_class,
-        description: entry.description,
+        description: crate::i18n::condition_text(entry.description, language),
     }
 }
 
 /// Like `get_icon`, but never wraps the glyph in Pango markup. Used by the
 /// structured JSON output (`--output json`), whose consumers do not render Pango.
-pub fn get_icon_plain(code: u8, is_day: bool, icon_set: &IconSet) -> IconInfo {
+pub fn get_icon_plain(code: u8, is_day: bool, icon_set: &IconSet, language: Language) -> IconInfo {
     let entry = find_entry(code);
     IconInfo {
         icon: raw_glyph(entry, is_day, icon_set).to_string(),
         css_class: entry.css_class,
-        description: entry.description,
+        description: crate::i18n::condition_text(entry.description, language),
     }
 }

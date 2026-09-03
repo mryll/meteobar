@@ -1,9 +1,11 @@
+use chrono::Datelike;
 use serde::Serialize;
 use unicode_width::UnicodeWidthStr;
 
 use crate::api::WeatherData;
 use crate::forecast::{self, DaySlot, HourSlot};
 use crate::format::degrees_to_cardinal;
+use crate::i18n::{self, Language};
 use crate::icons::{get_icon, IconSet};
 use crate::theme::{ramp_color, ThemeColors};
 
@@ -169,6 +171,7 @@ pub fn build_tooltip(
     stale_reason: Option<&str>,
     tooltip_font: &str,
     p: Paint,
+    language: Language,
 ) -> String {
     let current = &data.current;
     let temp = current.temperature_2m.round() as i32;
@@ -189,7 +192,12 @@ pub fn build_tooltip(
     // monospace font and have consistent width. The --icons flag still
     // controls the bar text via the `text` field.
     let tooltip_icons = &IconSet::Nerd;
-    let icon_info = get_icon(current.weather_code, current.is_day == 1, tooltip_icons);
+    let icon_info = get_icon(
+        current.weather_code,
+        current.is_day == 1,
+        tooltip_icons,
+        language,
+    );
     let speed_unit = if unit_label == "°F" { "mph" } else { "km/h" };
 
     let (c_text, c_dim, c_accent) = (&colors.text, &colors.dim, &colors.accent);
@@ -237,6 +245,7 @@ pub fn build_tooltip(
             unit_label,
             colors,
             p,
+            language,
         )
     } else {
         Vec::new()
@@ -249,6 +258,7 @@ pub fn build_tooltip(
             unit_label,
             colors,
             p,
+            language,
         )
     } else {
         Vec::new()
@@ -327,12 +337,15 @@ fn build_daily_lines(
     unit_label: &str,
     colors: &ThemeColors,
     p: Paint,
+    language: Language,
 ) -> Vec<String> {
     let ramp = colors.precip_ramp();
     days.iter()
         .map(|slot| {
-            let day_name = short_day_name(&slot.date);
-            let icon_info = get_icon(slot.weather_code, true, icon_set);
+            let day_name = short_day_name(&slot.date, language);
+            // The description is discarded below (only the glyph is used in
+            // this line), but get_icon always needs a language now.
+            let icon_info = get_icon(slot.weather_code, true, icon_set, language);
             let min = slot.temperature_min.round() as i32;
             let max = slot.temperature_max.round() as i32;
             let rain = slot.precip_pct.unwrap_or(0);
@@ -368,6 +381,7 @@ fn build_hourly_lines(
     unit_label: &str,
     colors: &ThemeColors,
     p: Paint,
+    language: Language,
 ) -> Vec<String> {
     let ramp = colors.precip_ramp();
     hours
@@ -381,8 +395,10 @@ fn build_hourly_lines(
                 .get(..5)
                 .unwrap_or("??:??");
             // Daylight comes from the shared selection, so a night hour gets
-            // its night glyph here exactly as it does in the panel.
-            let icon_info = get_icon(slot.weather_code, slot.is_day, icon_set);
+            // its night glyph here exactly as it does in the panel. The
+            // description is discarded below (only the glyph is used in this
+            // line), but get_icon always needs a language now.
+            let icon_info = get_icon(slot.weather_code, slot.is_day, icon_set, language);
             let temp = slot.temperature.round() as i32;
             let rain = slot.precip_pct.unwrap_or(0);
 
@@ -405,9 +421,16 @@ fn build_hourly_lines(
         .collect()
 }
 
-fn short_day_name(date_str: &str) -> String {
+fn short_day_name(date_str: &str, language: Language) -> String {
     if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-        date.format("%a %d").to_string()
+        // chrono's %a formats in the process locale, not --language/LANG
+        // (that needs the unstable-locales feature); the weekday name is
+        // built from the fixed table in i18n.rs instead.
+        format!(
+            "{} {}",
+            i18n::short_weekday(date.weekday(), language),
+            date.format("%d")
+        )
     } else {
         date_str.to_string()
     }
@@ -491,6 +514,7 @@ mod tests {
             None,
             "JetBrainsMono Nerd Font, JetBrainsMono Nerd Font Mono, monospace",
             paint,
+            Language::En,
         )
     }
 
@@ -596,6 +620,41 @@ mod tests {
         assert_eq!(widths(&colored), widths(&mono));
     }
 
+    #[test]
+    fn german_language_localizes_the_tooltip() {
+        let weather = fixture();
+        let tooltip = build_tooltip(
+            "Berlin",
+            &weather,
+            &TooltipFormat::Both,
+            1,
+            1,
+            "°C",
+            &ThemeColors::default(),
+            None,
+            None,
+            "JetBrainsMono Nerd Font, JetBrainsMono Nerd Font Mono, monospace",
+            Paint::new(false),
+            Language::De,
+        );
+        // current.weather_code is 3 ("Overcast" / "Bedeckt" in the fixture).
+        assert!(
+            tooltip.contains("Bedeckt"),
+            "expected the German condition text: {tooltip:?}"
+        );
+        assert!(
+            !tooltip.contains("Overcast"),
+            "English condition text leaked: {tooltip:?}"
+        );
+        // The daily line's weekday abbreviation is German too.
+        let date = chrono::NaiveDate::parse_from_str(&weather.daily.time[0], "%Y-%m-%d").unwrap();
+        let de_weekday = i18n::short_weekday(date.weekday(), Language::De);
+        assert!(
+            tooltip.contains(de_weekday),
+            "expected the German weekday abbreviation {de_weekday:?}: {tooltip:?}"
+        );
+    }
+
     // ---- one selection, two frontends -------------------------------------
 
     #[test]
@@ -611,6 +670,7 @@ mod tests {
                 hours: 3,
                 icon_set: &IconSet::Nerd,
                 imperial: false,
+                language: Language::En,
             },
             crate::structured::CacheInfo::empty(),
             &ThemeColors::default(),
@@ -623,6 +683,7 @@ mod tests {
             "°C",
             &ThemeColors::default(),
             Paint::new(false),
+            Language::En,
         );
 
         assert_eq!(structured.hourly.len(), lines.len());
@@ -661,6 +722,7 @@ mod tests {
             "°C",
             &ThemeColors::default(),
             Paint::new(false),
+            Language::En,
         );
         assert!(
             lines[0].contains('󰖔'),
@@ -694,6 +756,7 @@ mod tests {
             None,
             "JetBrainsMono Nerd Font, JetBrainsMono Nerd Font Mono, monospace",
             Paint::new(true),
+            Language::En,
         );
         assert!(rendered.contains("Berlin"));
     }
@@ -710,7 +773,14 @@ mod tests {
             is_day: true,
             precip_pct: Some(45),
         }];
-        let line = &build_hourly_lines(&slots, &IconSet::Nerd, "°C", &colors, Paint::new(true))[0];
+        let line = &build_hourly_lines(
+            &slots,
+            &IconSet::Nerd,
+            "°C",
+            &colors,
+            Paint::new(true),
+            Language::En,
+        )[0];
         assert!(line.contains(&ramp_color(&ramp, 45)));
     }
 
