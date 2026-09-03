@@ -29,6 +29,9 @@ pub struct DaySlot {
     pub temperature_max: f64,
     pub weather_code: u8,
     pub precip_pct: Option<u8>,
+    /// The day's peak UV index. `None` when the payload carries no value for
+    /// this day, which a cache written before UV was requested will not.
+    pub uv_index_max: Option<f64>,
     pub sunrise: String,
     pub sunset: String,
 }
@@ -121,6 +124,11 @@ pub fn forecast_days(weather: &WeatherData, days: u8) -> Vec<DaySlot> {
         .iter()
         .map(|p| Some(*p))
         .chain(std::iter::repeat(None));
+    let uv = daily
+        .uv_index_max
+        .iter()
+        .map(|v| Some(*v))
+        .chain(std::iter::repeat(None));
 
     daily
         .time
@@ -131,16 +139,23 @@ pub fn forecast_days(weather: &WeatherData, days: u8) -> Vec<DaySlot> {
         .zip(daily.sunrise.iter())
         .zip(daily.sunset.iter())
         .zip(precip)
+        .zip(uv)
         .take(days as usize)
         .map(
-            |((((((date, weather_code), tmin), tmax), sunrise), sunset), precip_pct)| DaySlot {
-                date: date.clone(),
-                temperature_min: *tmin,
-                temperature_max: *tmax,
-                weather_code: *weather_code,
-                precip_pct,
-                sunrise: sunrise.clone(),
-                sunset: sunset.clone(),
+            |(
+                ((((((date, weather_code), tmin), tmax), sunrise), sunset), precip_pct),
+                uv_index_max,
+            )| {
+                DaySlot {
+                    date: date.clone(),
+                    temperature_min: *tmin,
+                    temperature_max: *tmax,
+                    weather_code: *weather_code,
+                    precip_pct,
+                    uv_index_max,
+                    sunrise: sunrise.clone(),
+                    sunset: sunset.clone(),
+                }
             },
         )
         .collect()
@@ -164,6 +179,7 @@ mod tests {
                 wind_direction_10m: Some(40.0),
                 pressure_msl: Some(1012.0),
                 precipitation: Some(0.0),
+                uv_index: Some(5.2),
             },
             daily: DailyForecast {
                 time: vec!["2026-08-20".into(), "2026-08-21".into()],
@@ -174,6 +190,7 @@ mod tests {
                 sunset: vec!["2026-08-20T18:15".into(), "2026-08-21T18:16".into()],
                 precipitation_probability_max: vec![20, 80],
                 wind_speed_10m_max: vec![20.0, 25.0],
+                uv_index_max: vec![8.9, 6.4],
             },
             hourly: Some(HourlyForecast {
                 time: vec![

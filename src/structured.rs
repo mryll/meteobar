@@ -118,6 +118,9 @@ pub struct Current {
     pub wind_direction: Option<&'static str>,
     pub pressure: Option<f64>,
     pub precipitation: Option<f64>,
+    /// Current UV index. `None` when the payload carries no value, which a
+    /// cache written before UV was requested will not.
+    pub uv_index: Option<f64>,
     pub weather_code: u8,
     pub is_day: bool,
     pub icon: String,
@@ -151,6 +154,8 @@ pub struct DailyEntry {
     pub description: &'static str,
     /// Maximum precipitation probability for the day, 0-100.
     pub precip_pct: Option<u8>,
+    /// The day's peak UV index.
+    pub uv_index_max: Option<f64>,
     pub sunrise: String,
     pub sunset: String,
 }
@@ -219,6 +224,7 @@ pub fn build(
             wind_direction: current.wind_direction_10m.map(degrees_to_cardinal),
             pressure: current.pressure_msl,
             precipitation: current.precipitation,
+            uv_index: current.uv_index,
             weather_code: current.weather_code,
             is_day: current.is_day == 1,
             icon: icon_info.icon,
@@ -287,6 +293,7 @@ fn build_daily(weather: &WeatherData, days: u8, icon_set: &IconSet) -> Vec<Daily
                 icon: icon_info.icon,
                 description: icon_info.description,
                 precip_pct: slot.precip_pct,
+                uv_index_max: slot.uv_index_max,
                 sunrise: slot.sunrise,
                 sunset: slot.sunset,
             }
@@ -312,6 +319,7 @@ mod tests {
                 wind_direction_10m: Some(40.0),
                 pressure_msl: Some(1012.0),
                 precipitation: Some(0.0),
+                uv_index: Some(5.2),
             },
             daily: DailyForecast {
                 time: vec!["2026-08-20".into(), "2026-08-20".into()],
@@ -322,6 +330,7 @@ mod tests {
                 sunset: vec!["2026-08-20T18:15".into(), "2026-08-20T18:16".into()],
                 precipitation_probability_max: vec![20, 80],
                 wind_speed_10m_max: vec![20.0, 25.0],
+                uv_index_max: vec![8.9, 6.4],
             },
             hourly: Some(HourlyForecast {
                 time: vec![
@@ -431,6 +440,49 @@ mod tests {
         assert_eq!(out.daily[0].temperature_min, 8.0);
         assert_eq!(out.daily[0].temperature_max, 15.0);
         assert_eq!(out.daily[0].precip_pct, Some(20));
+        assert_eq!(out.daily[0].uv_index_max, Some(8.9));
+    }
+
+    #[test]
+    fn uv_index_is_published_for_current_and_each_day() {
+        let out = build_test(&fixture(), "X", 2, 0, &IconSet::Nerd, false, fresh_cache());
+        let current = out.current.expect("fixture has current conditions");
+        assert_eq!(current.uv_index, Some(5.2));
+        assert_eq!(out.daily[0].uv_index_max, Some(8.9));
+        assert_eq!(out.daily[1].uv_index_max, Some(6.4));
+    }
+
+    #[test]
+    fn uv_absent_from_the_payload_reports_none_without_dropping_the_day() {
+        // A cache written before UV was requested deserializes with the field
+        // defaulted: current has no value and the daily vector is empty. Neither
+        // may cost a day, and neither may be reported as a reading of zero.
+        let mut weather = fixture();
+        weather.current.uv_index = None;
+        weather.daily.uv_index_max = Vec::new();
+
+        let out = build_test(&weather, "X", 2, 0, &IconSet::Nerd, false, fresh_cache());
+        let current = out.current.expect("fixture has current conditions");
+        assert_eq!(current.uv_index, None);
+        assert_eq!(out.daily.len(), 2);
+        assert!(out.daily.iter().all(|d| d.uv_index_max.is_none()));
+        // The rest of the day survives intact.
+        assert_eq!(out.daily[0].temperature_max, 15.0);
+        assert_eq!(out.daily[0].precip_pct, Some(20));
+    }
+
+    #[test]
+    fn a_short_uv_vector_fills_the_remaining_days_with_none() {
+        // Open-Meteo returns parallel arrays that can disagree in length; a
+        // shorter UV vector must yield None per day rather than truncating the
+        // forecast, which is how precipitation_probability_max already behaves.
+        let mut weather = fixture();
+        weather.daily.uv_index_max = vec![8.9];
+
+        let out = build_test(&weather, "X", 2, 0, &IconSet::Nerd, false, fresh_cache());
+        assert_eq!(out.daily.len(), 2);
+        assert_eq!(out.daily[0].uv_index_max, Some(8.9));
+        assert_eq!(out.daily[1].uv_index_max, None);
     }
 
     #[test]

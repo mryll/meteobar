@@ -83,6 +83,8 @@ pub struct CurrentWeather {
     pub pressure_msl: Option<f64>,
     #[serde(default)]
     pub precipitation: Option<f64>,
+    #[serde(default)]
+    pub uv_index: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -97,6 +99,8 @@ pub struct DailyForecast {
     pub precipitation_probability_max: Vec<u8>,
     #[serde(default)]
     pub wind_speed_10m_max: Vec<f64>,
+    #[serde(default)]
+    pub uv_index_max: Vec<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -298,8 +302,8 @@ pub fn fetch_weather(
     hours: u8,
     units: &Units,
 ) -> Result<WeatherData, String> {
-    let current_params = "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,is_day,wind_speed_10m,wind_direction_10m,pressure_msl,precipitation";
-    let daily_params = "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max,wind_speed_10m_max";
+    let current_params = "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,is_day,wind_speed_10m,wind_direction_10m,pressure_msl,precipitation,uv_index";
+    let daily_params = "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max,wind_speed_10m_max,uv_index_max";
 
     let mut url = format!(
         "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current={current_params}&daily={daily_params}&timezone=auto&forecast_days={days}"
