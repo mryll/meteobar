@@ -456,6 +456,7 @@ mod tests {
                 wind_direction_10m: Some(40.0),
                 pressure_msl: Some(1012.0),
                 precipitation: Some(0.0),
+                uv_index: Some(5.2),
             },
             daily: DailyForecast {
                 time: vec!["2026-08-20".into()],
@@ -466,6 +467,7 @@ mod tests {
                 sunset: vec!["2026-08-20T18:15".into()],
                 precipitation_probability_max: vec![80],
                 wind_speed_10m_max: vec![20.0],
+                uv_index_max: vec![8.9],
             },
             hourly: Some(HourlyForecast {
                 time: vec!["2026-08-20T15:00".into()],
