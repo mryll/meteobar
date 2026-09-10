@@ -88,6 +88,16 @@ Panel {
   // ---- settings ------------------------------------------------------------
   readonly property int refreshMinutes: Math.max(1, parseInt(setting("refreshMinutes", 15), 10) || 15)
   readonly property string unitsSetting: String(setting("units", "metric")) === "imperial" ? "imperial" : "metric"
+  // Open-Meteo takes the two units independently; "follow" (the default) keeps
+  // them tied to unitsSetting, which is what every existing config does.
+  readonly property string temperatureUnitSetting: {
+    var v = String(setting("temperatureUnit", "follow")).trim().toLowerCase()
+    return (v === "celsius" || v === "fahrenheit") ? v : ""
+  }
+  readonly property string windSpeedUnitSetting: {
+    var v = String(setting("windSpeedUnit", "follow")).trim().toLowerCase()
+    return (["kmh", "mph", "ms", "kn"].indexOf(v) >= 0) ? v : ""
+  }
   readonly property string locationSetting: String(setting("location", "")).trim()
   // Empty means "not set" — the CLI falls back to LC_MESSAGES/LANG, then
   // English, on its own. Not exposed in manifest.json: unlike units, this
@@ -116,6 +126,7 @@ Panel {
 
   // Refetch when any setting that changes the payload changes.
   readonly property string fetchKey: unitsSetting + "|" + locationSetting + "|" + iconSetSetting + "|" + languageSetting
+    + "|" + temperatureUnitSetting + "|" + windSpeedUnitSetting
   onFetchKeyChanged: Qt.callLater(refresh)
 
   // Open with fresh data. open/close/toggle shadow the Panel base so every
@@ -216,6 +227,16 @@ Panel {
   function buildCmd() {
     var cmd = ["meteobar", "--output", "json", "--days", "6", "--hours", "12",
                "--units", unitsSetting, "--icons", iconSetSetting]
+    // Sent only when overridden, so "follow" keeps whatever --units implies
+    // and the command stays identical to before for anyone not using these.
+    if (temperatureUnitSetting !== "") {
+      cmd.push("--temperature-unit")
+      cmd.push(temperatureUnitSetting)
+    }
+    if (windSpeedUnitSetting !== "") {
+      cmd.push("--wind-speed-unit")
+      cmd.push(windSpeedUnitSetting)
+    }
     if (locationSetting !== "") {
       cmd.push("--location")
       cmd.push(locationSetting)

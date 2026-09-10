@@ -23,7 +23,9 @@
       "units": "metric",
       "location": "",
       "iconSet": "nerd",
-      "colorMode": "full"
+      "colorMode": "full",
+      "temperatureUnit": "follow",
+      "windSpeedUnit": "follow"
     },
     "schema": [
       {
@@ -46,6 +48,32 @@
           "imperial"
         ],
         "defaultValue": "metric"
+      },
+      {
+        "key": "temperatureUnit",
+        "type": "enum",
+        "label": "Temperature unit",
+        "options": [
+          "follow",
+          "celsius",
+          "fahrenheit"
+        ],
+        "defaultValue": "follow",
+        "description": "follow: whatever Units gives (°C metric, °F imperial). Set it on its own to mix, e.g. celsius alongside mph wind."
+      },
+      {
+        "key": "windSpeedUnit",
+        "type": "enum",
+        "label": "Wind speed unit",
+        "options": [
+          "follow",
+          "kmh",
+          "mph",
+          "ms",
+          "kn"
+        ],
+        "defaultValue": "follow",
+        "description": "follow: whatever Units gives (km/h metric, mph imperial). Set mph alongside metric units for the UK convention of °C temperatures and mph wind."
       },
       {
         "key": "location",

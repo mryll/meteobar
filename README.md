@@ -143,6 +143,8 @@ The screenshot shows every section, with `--tooltip-format both --days 4 --hours
 | `--days <N>` | 1-7 | `3` | Days in the tooltip |
 | `--hours <N>` | 0-24 | `0` | Hours in the tooltip |
 | `--units <UNITS>` | `metric`, `imperial` | `metric` | Unit system |
+| `--temperature-unit <UNIT>` | `celsius`, `fahrenheit` | follows `--units` | Temperature unit on its own |
+| `--wind-speed-unit <UNIT>` | `kmh`, `mph`, `ms`, `kn` | follows `--units` | Wind speed unit on its own. `--units metric --wind-speed-unit mph` gives the UK pairing of °C temperatures with mph wind |
 | `--icons <SET>` | `nerd`, `weather`, `emoji`, `fontawesome` | `nerd` | Icon set for the bar text |
 | `--language <CODE>` | `en`, `de` | `LC_ALL`/`LC_MESSAGES`/`LANG`, else `en` | Language for the condition text and the forecast day labels. The first of those variables that is set decides; an unknown code, `C` or `POSIX` is English; region and encoding suffixes (`de_DE.UTF-8`) are ignored |
 | `--tooltip-font <NAME>` | font family or list | `JetBrainsMono Nerd Font, JetBrainsMono Nerd Font Mono, monospace` | The family the tooltip is pinned to. Must be monospace — see [Tooltip font](#tooltip-font) |
@@ -291,6 +293,8 @@ Configure these keys in the shell settings window, or in the layout entry in `sh
 |---|---|---|---|
 | `refreshMinutes` | 1-180 | `15` | Minutes between refreshes |
 | `units` | `metric`, `imperial` | `metric` | Unit system |
+| `temperatureUnit` | `follow`, `celsius`, `fahrenheit` | `follow` | Temperature unit on its own. `follow` takes it from `units` |
+| `windSpeedUnit` | `follow`, `kmh`, `mph`, `ms`, `kn` | `follow` | Wind speed unit on its own. `follow` takes it from `units`; `mph` with metric `units` gives °C temperatures and mph wind |
 | `location` | text | `""` | City name, `City, Province`, or `City, CC`. An empty value detects the location by IP |
 | `iconSet` | `nerd`, `weather`, `emoji`, `fontawesome` | `nerd` | Icon set. `fontawesome` needs otf-font-awesome 7 or later |
 | `colorMode` | `full`, `none`, `bar-only`, `panel-only` | `full` | Where to keep the colors |

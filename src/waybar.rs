@@ -681,7 +681,7 @@ mod tests {
                 days: 1,
                 hours: 3,
                 icon_set: &IconSet::Nerd,
-                imperial: false,
+                units: crate::api::Units::metric(),
                 language: Language::En,
             },
             crate::structured::CacheInfo::empty(),

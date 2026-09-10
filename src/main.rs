@@ -55,6 +55,16 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = CliUnits::Metric)]
     units: CliUnits,
 
+    /// Temperature unit on its own. Unset follows --units. Set this with
+    /// `--units metric` for the UK pairing of °C temperatures and mph wind,
+    /// which neither unit system offers.
+    #[arg(long, value_enum)]
+    temperature_unit: Option<CliTemperatureUnit>,
+
+    /// Wind speed unit on its own. Unset follows --units.
+    #[arg(long, value_enum)]
+    wind_speed_unit: Option<CliWindSpeedUnit>,
+
     #[arg(long, value_enum, default_value_t = IconSet::Nerd)]
     icons: IconSet,
 
@@ -110,6 +120,20 @@ enum CliUnits {
 }
 
 #[derive(Clone, clap::ValueEnum)]
+enum CliTemperatureUnit {
+    Celsius,
+    Fahrenheit,
+}
+
+#[derive(Clone, clap::ValueEnum)]
+enum CliWindSpeedUnit {
+    Kmh,
+    Mph,
+    Ms,
+    Kn,
+}
+
+#[derive(Clone, clap::ValueEnum)]
 enum OutputFormat {
     /// Waybar module JSON: text, pango tooltip, class, alt (default)
     Waybar,
@@ -148,16 +172,30 @@ fn main() {
         .build()
         .expect("failed to build HTTP client");
 
-    let units = match cli.units {
-        CliUnits::Metric => api::Units::Metric,
-        CliUnits::Imperial => api::Units::Imperial,
+    // --units picks the pair; either half can then be overridden on its own.
+    let mut units = match cli.units {
+        CliUnits::Metric => api::Units::metric(),
+        CliUnits::Imperial => api::Units::imperial(),
     };
-    let imperial = matches!(cli.units, CliUnits::Imperial);
-    let unit_label = if imperial { "°F" } else { "°C" };
+    if let Some(t) = &cli.temperature_unit {
+        units.temperature = match t {
+            CliTemperatureUnit::Celsius => api::TemperatureUnit::Celsius,
+            CliTemperatureUnit::Fahrenheit => api::TemperatureUnit::Fahrenheit,
+        };
+    }
+    if let Some(w) = &cli.wind_speed_unit {
+        units.wind_speed = match w {
+            CliWindSpeedUnit::Kmh => api::WindSpeedUnit::Kmh,
+            CliWindSpeedUnit::Mph => api::WindSpeedUnit::Mph,
+            CliWindSpeedUnit::Ms => api::WindSpeedUnit::Ms,
+            CliWindSpeedUnit::Kn => api::WindSpeedUnit::Kn,
+        };
+    }
+    let unit_label = units.temperature.label();
 
     let cache_key = cache::CacheKey {
         location: cache_location_descriptor(&cli),
-        units: if imperial { "imperial" } else { "metric" },
+        units: units.cache_tag(),
         days: cli.days,
         hours: cli.hours,
     };
@@ -200,13 +238,13 @@ fn main() {
                         days: cli.days,
                         hours: cli.hours,
                         icon_set: &cli.icons,
-                        imperial,
+                        units,
                         language,
                     },
                     structured::CacheInfo::from_freshness(&freshness),
                     &colors,
                 ),
-                Err(msg) => structured::error_output(&msg, &cli.icons, imperial, &colors),
+                Err(msg) => structured::error_output(&msg, &cli.icons, units, &colors),
             };
             print_structured_and_exit(output);
         }
@@ -238,7 +276,7 @@ fn report_cli_error(err: clap::Error) {
         print_structured_and_exit(structured::error_output(
             &message,
             &IconSet::Nerd,
-            false,
+            api::Units::metric(),
             &colors,
         ));
     } else {

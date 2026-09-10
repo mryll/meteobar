@@ -289,9 +289,93 @@ fn build_display_name(city: &str, admin1: Option<&str>, country_code: Option<&st
     parts.join(", ")
 }
 
-pub enum Units {
-    Metric,
-    Imperial,
+/// Open-Meteo takes `temperature_unit` and `wind_speed_unit` independently, so
+/// the two are carried separately here rather than collapsed into one
+/// metric/imperial flag. The UK reads temperature in °C and wind in mph, a
+/// pairing neither system offers; Canada does the same with km/h and °C
+/// alongside imperial elsewhere.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TemperatureUnit {
+    Celsius,
+    Fahrenheit,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WindSpeedUnit {
+    Kmh,
+    Mph,
+    Ms,
+    Kn,
+}
+
+impl TemperatureUnit {
+    /// The value Open-Meteo expects in the query string.
+    pub fn api_value(self) -> &'static str {
+        match self {
+            Self::Celsius => "celsius",
+            Self::Fahrenheit => "fahrenheit",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Celsius => "\u{00b0}C",
+            Self::Fahrenheit => "\u{00b0}F",
+        }
+    }
+}
+
+impl WindSpeedUnit {
+    pub fn api_value(self) -> &'static str {
+        match self {
+            Self::Kmh => "kmh",
+            Self::Mph => "mph",
+            Self::Ms => "ms",
+            Self::Kn => "kn",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Kmh => "km/h",
+            Self::Mph => "mph",
+            Self::Ms => "m/s",
+            Self::Kn => "kn",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Units {
+    pub temperature: TemperatureUnit,
+    pub wind_speed: WindSpeedUnit,
+}
+
+impl Units {
+    pub fn metric() -> Self {
+        Self {
+            temperature: TemperatureUnit::Celsius,
+            wind_speed: WindSpeedUnit::Kmh,
+        }
+    }
+
+    pub fn imperial() -> Self {
+        Self {
+            temperature: TemperatureUnit::Fahrenheit,
+            wind_speed: WindSpeedUnit::Mph,
+        }
+    }
+
+    /// Stable descriptor for the response cache. Both units belong in the key:
+    /// the payload holds converted numbers, so a °C/mph request must never be
+    /// served a cached °C/km-h one.
+    pub fn cache_tag(&self) -> String {
+        format!(
+            "{}+{}",
+            self.temperature.api_value(),
+            self.wind_speed.api_value()
+        )
+    }
 }
 
 pub fn fetch_weather(
@@ -313,12 +397,14 @@ pub fn fetch_weather(
         url.push_str("&hourly=temperature_2m,weather_code,precipitation_probability");
     }
 
-    match units {
-        Units::Imperial => {
-            url.push_str("&temperature_unit=fahrenheit&wind_speed_unit=mph");
-        }
-        Units::Metric => {}
-    }
+    // Sent unconditionally, including for the API's own defaults: the request
+    // then says what it wants rather than relying on Open-Meteo's defaults
+    // staying put.
+    url.push_str(&format!(
+        "&temperature_unit={}&wind_speed_unit={}",
+        units.temperature.api_value(),
+        units.wind_speed.api_value()
+    ));
 
     let raw = client
         .get(&url)

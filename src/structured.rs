@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use chrono::Datelike;
 
-use crate::api::WeatherData;
+use crate::api::{Units, WeatherData};
 use crate::cache::Freshness;
 use crate::forecast;
 use crate::format::degrees_to_cardinal;
@@ -168,10 +168,10 @@ pub struct DailyEntry {
     pub sunset: String,
 }
 
-fn unit_labels(imperial: bool) -> UnitLabels {
+fn unit_labels(units: Units) -> UnitLabels {
     UnitLabels {
-        temperature: if imperial { "°F" } else { "°C" },
-        wind_speed: if imperial { "mph" } else { "km/h" },
+        temperature: units.temperature.label(),
+        wind_speed: units.wind_speed.label(),
         pressure: "hPa",
     }
 }
@@ -190,7 +190,7 @@ pub struct Request<'a> {
     pub days: u8,
     pub hours: u8,
     pub icon_set: &'a IconSet,
-    pub imperial: bool,
+    pub units: Units,
     pub language: Language,
 }
 
@@ -210,7 +210,7 @@ pub fn build(
         days,
         hours,
         icon_set,
-        imperial,
+        units,
         language,
     } = *request;
     let current = &weather.current;
@@ -226,7 +226,7 @@ pub fn build(
         error: None,
         location: Some(city.to_string()),
         location_short: Some(city_short.to_string()),
-        units: unit_labels(imperial),
+        units: unit_labels(units),
         icon_set: icon_set_name(icon_set),
         cache,
         palette: Palette::from_theme(colors),
@@ -254,7 +254,7 @@ pub fn build(
 pub fn error_output(
     message: &str,
     icon_set: &IconSet,
-    imperial: bool,
+    units: Units,
     colors: &ThemeColors,
 ) -> StructuredOutput {
     StructuredOutput {
@@ -265,7 +265,7 @@ pub fn error_output(
         }),
         location: None,
         location_short: None,
-        units: unit_labels(imperial),
+        units: unit_labels(units),
         icon_set: icon_set_name(icon_set),
         cache: CacheInfo::empty(),
         palette: Palette::from_theme(colors),
@@ -408,7 +408,7 @@ mod tests {
         days: u8,
         hours: u8,
         icon_set: &IconSet,
-        imperial: bool,
+        units: Units,
         cache: CacheInfo,
     ) -> StructuredOutput {
         build(
@@ -419,7 +419,7 @@ mod tests {
                 days,
                 hours,
                 icon_set,
-                imperial,
+                units,
                 language: Language::En,
             },
             cache,
@@ -435,7 +435,7 @@ mod tests {
             7,
             4,
             &IconSet::Nerd,
-            false,
+            Units::metric(),
             fresh_cache(),
         );
         assert_eq!(out.schema_version, SCHEMA_VERSION);
@@ -467,7 +467,7 @@ mod tests {
                 days: 2,
                 hours: 1,
                 icon_set: &IconSet::Nerd,
-                imperial: false,
+                units: Units::metric(),
                 language: Language::De,
             },
             fresh_cache(),
@@ -491,7 +491,15 @@ mod tests {
 
     #[test]
     fn day_labels_are_today_then_weekday_and_day_in_english() {
-        let out = build_test(&fixture(), "X", 2, 0, &IconSet::Nerd, false, fresh_cache());
+        let out = build_test(
+            &fixture(),
+            "X",
+            2,
+            0,
+            &IconSet::Nerd,
+            Units::metric(),
+            fresh_cache(),
+        );
         assert_eq!(out.daily[0].label, "Today");
         assert_eq!(out.daily[1].label, "Thu 20");
     }
@@ -505,7 +513,15 @@ mod tests {
 
     #[test]
     fn hourly_starts_at_the_in_progress_hour_and_caps_count() {
-        let out = build_test(&fixture(), "X", 7, 4, &IconSet::Nerd, false, fresh_cache());
+        let out = build_test(
+            &fixture(),
+            "X",
+            7,
+            4,
+            &IconSet::Nerd,
+            Units::metric(),
+            fresh_cache(),
+        );
         // current.time is 15:15 → the 15:00 slot is in progress and kept.
         let times: Vec<&str> = out.hourly.iter().map(|h| h.time.as_str()).collect();
         assert_eq!(
@@ -522,7 +538,15 @@ mod tests {
 
     #[test]
     fn hourly_is_day_follows_sunrise_and_sunset() {
-        let out = build_test(&fixture(), "X", 7, 24, &IconSet::Nerd, false, fresh_cache());
+        let out = build_test(
+            &fixture(),
+            "X",
+            7,
+            24,
+            &IconSet::Nerd,
+            Units::metric(),
+            fresh_cache(),
+        );
         let by_time = |t: &str| out.hourly.iter().find(|h| h.time == t).unwrap();
         assert!(by_time("2026-08-20T17:00").is_day);
         assert!(!by_time("2026-08-20T19:00").is_day); // after 18:15 sunset
@@ -530,7 +554,15 @@ mod tests {
 
     #[test]
     fn daily_is_capped_to_requested_days() {
-        let out = build_test(&fixture(), "X", 1, 0, &IconSet::Nerd, false, fresh_cache());
+        let out = build_test(
+            &fixture(),
+            "X",
+            1,
+            0,
+            &IconSet::Nerd,
+            Units::metric(),
+            fresh_cache(),
+        );
         assert_eq!(out.daily.len(), 1);
         assert_eq!(out.daily[0].date, "2026-08-20");
         assert_eq!(out.daily[0].temperature_min, 8.0);
@@ -541,7 +573,15 @@ mod tests {
 
     #[test]
     fn uv_index_is_published_for_current_and_each_day() {
-        let out = build_test(&fixture(), "X", 2, 0, &IconSet::Nerd, false, fresh_cache());
+        let out = build_test(
+            &fixture(),
+            "X",
+            2,
+            0,
+            &IconSet::Nerd,
+            Units::metric(),
+            fresh_cache(),
+        );
         let current = out.current.expect("fixture has current conditions");
         assert_eq!(current.uv_index, Some(5.2));
         assert_eq!(out.daily[0].uv_index_max, Some(8.9));
@@ -557,7 +597,15 @@ mod tests {
         weather.current.uv_index = None;
         weather.daily.uv_index_max = Vec::new();
 
-        let out = build_test(&weather, "X", 2, 0, &IconSet::Nerd, false, fresh_cache());
+        let out = build_test(
+            &weather,
+            "X",
+            2,
+            0,
+            &IconSet::Nerd,
+            Units::metric(),
+            fresh_cache(),
+        );
         let current = out.current.expect("fixture has current conditions");
         assert_eq!(current.uv_index, None);
         assert_eq!(out.daily.len(), 2);
@@ -575,7 +623,15 @@ mod tests {
         let mut weather = fixture();
         weather.daily.uv_index_max = vec![8.9];
 
-        let out = build_test(&weather, "X", 2, 0, &IconSet::Nerd, false, fresh_cache());
+        let out = build_test(
+            &weather,
+            "X",
+            2,
+            0,
+            &IconSet::Nerd,
+            Units::metric(),
+            fresh_cache(),
+        );
         assert_eq!(out.daily.len(), 2);
         assert_eq!(out.daily[0].uv_index_max, Some(8.9));
         assert_eq!(out.daily[1].uv_index_max, None);
@@ -594,7 +650,15 @@ mod tests {
         // Skip the now-filter so the truncation itself is what is observed.
         weather.current.time = Some("2026-08-20T00:00".into());
 
-        let out = build_test(&weather, "X", 7, 24, &IconSet::Nerd, false, fresh_cache());
+        let out = build_test(
+            &weather,
+            "X",
+            7,
+            24,
+            &IconSet::Nerd,
+            Units::metric(),
+            fresh_cache(),
+        );
         assert_eq!(out.daily.len(), 1);
         assert_eq!(out.hourly.len(), 4);
         // Entries beyond the short optional array carry None, not synthesized 0.
@@ -604,7 +668,15 @@ mod tests {
         // Fully empty arrays → valid empty JSON arrays.
         weather.daily.time.clear();
         weather.hourly = None;
-        let out = build_test(&weather, "X", 7, 24, &IconSet::Nerd, false, fresh_cache());
+        let out = build_test(
+            &weather,
+            "X",
+            7,
+            24,
+            &IconSet::Nerd,
+            Units::metric(),
+            fresh_cache(),
+        );
         assert!(out.daily.is_empty());
         assert!(out.hourly.is_empty());
         let json = serde_json::to_string(&out).unwrap();
@@ -626,7 +698,7 @@ mod tests {
             1,
             0,
             &IconSet::Nerd,
-            false,
+            Units::metric(),
             CacheInfo::from_freshness(&freshness),
         );
         let json = serde_json::to_string(&out).unwrap();
@@ -656,7 +728,7 @@ mod tests {
             2,
             2,
             &IconSet::Fontawesome,
-            false,
+            Units::metric(),
             fresh_cache(),
         );
         let current = out.current.unwrap();
@@ -670,7 +742,7 @@ mod tests {
         let out = error_output(
             "no results for location 'Nowhere'",
             &IconSet::Nerd,
-            true,
+            Units::imperial(),
             &ThemeColors::default(),
         );
         assert_eq!(out.schema_version, SCHEMA_VERSION);
@@ -685,5 +757,58 @@ mod tests {
         );
         assert!(parsed["location"].is_null());
         assert_eq!(parsed["cache"]["stale"], serde_json::Value::Bool(false));
+    }
+    /// The UK pairing: °C with mph. Neither unit system offers it, so each
+    /// label has to follow its own unit rather than a single imperial flag.
+    #[test]
+    fn temperature_and_wind_speed_labels_are_independent() {
+        let units = Units {
+            temperature: crate::api::TemperatureUnit::Celsius,
+            wind_speed: crate::api::WindSpeedUnit::Mph,
+        };
+        let out = build_test(&fixture(), "X", 2, 0, &IconSet::Nerd, units, fresh_cache());
+        assert_eq!(out.units.temperature, "\u{00b0}C");
+        assert_eq!(out.units.wind_speed, "mph");
+    }
+
+    /// --units still sets both halves, so the existing presets are unchanged.
+    #[test]
+    fn the_unit_systems_still_set_both_halves() {
+        let metric = build_test(
+            &fixture(),
+            "X",
+            2,
+            0,
+            &IconSet::Nerd,
+            Units::metric(),
+            fresh_cache(),
+        );
+        assert_eq!(metric.units.temperature, "\u{00b0}C");
+        assert_eq!(metric.units.wind_speed, "km/h");
+
+        let imperial = build_test(
+            &fixture(),
+            "X",
+            2,
+            0,
+            &IconSet::Nerd,
+            Units::imperial(),
+            fresh_cache(),
+        );
+        assert_eq!(imperial.units.temperature, "\u{00b0}F");
+        assert_eq!(imperial.units.wind_speed, "mph");
+    }
+
+    /// A cached payload holds already converted numbers, so a °C/mph request
+    /// must not be served the °C/km-h payload it shares a temperature unit
+    /// with. Both halves therefore belong in the cache key.
+    #[test]
+    fn mixed_units_do_not_share_a_cache_tag_with_metric() {
+        let mixed = Units {
+            temperature: crate::api::TemperatureUnit::Celsius,
+            wind_speed: crate::api::WindSpeedUnit::Mph,
+        };
+        assert_ne!(Units::metric().cache_tag(), mixed.cache_tag());
+        assert_ne!(Units::imperial().cache_tag(), mixed.cache_tag());
     }
 }
