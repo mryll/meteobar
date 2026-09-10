@@ -149,6 +149,27 @@ struct IpGeoResponse {
     country_code: Option<String>,
 }
 
+/// ipinfo.io's shape. Unlike ipwho.is there is no success flag, and the
+/// coordinates arrive as a single "lat,lon" string rather than two numbers.
+#[derive(Deserialize)]
+struct IpInfoResponse {
+    #[serde(default)]
+    loc: Option<String>,
+    #[serde(default)]
+    city: Option<String>,
+    #[serde(default)]
+    region: Option<String>,
+    /// Already a two-letter code, so it slots straight into the same
+    /// `build_display_name` slot as ipwho.is's `country_code`.
+    #[serde(default)]
+    country: Option<String>,
+}
+
+fn split_latlon(loc: &str) -> Option<(f64, f64)> {
+    let (lat, lon) = loc.split_once(',')?;
+    Some((lat.trim().parse().ok()?, lon.trim().parse().ok()?))
+}
+
 pub fn geocode(client: &Client, location: &str) -> Result<ResolvedLocation, String> {
     let (search_name, qualifiers) = parse_location(location);
 
@@ -203,7 +224,42 @@ pub fn geolocate_ip(client: &Client) -> Result<ResolvedLocation, String> {
         .build()
         .unwrap_or_else(|_| client.clone());
 
-    let raw = geo_client
+    // ipinfo.io first. ipwho.is is not merely imprecise on some networks but
+    // wrong by hundreds of kilometres, and consistently so: a Virgin Media
+    // Northern Ireland address resolves to Wakefield, England, while ipinfo.io
+    // places the same address correctly. Kept as a chain rather than a straight
+    // swap so one provider being unreachable still yields a location.
+    if let Ok(found) = geolocate_ipinfo(&geo_client) {
+        return Ok(found);
+    }
+    geolocate_ipwhois(&geo_client)
+}
+
+fn geolocate_ipinfo(client: &Client) -> Result<ResolvedLocation, String> {
+    let raw = client
+        .get("https://ipinfo.io/json")
+        .send()
+        .map_err(|e| format!("IP geolocation failed: {e}"))?;
+    let resp: IpInfoResponse =
+        read_json_bounded(raw).map_err(|e| format!("IP geolocation parse failed: {e}"))?;
+
+    let city = resp.city.unwrap_or_default();
+    if city.is_empty() {
+        return Err("IP geolocation returned no city".into());
+    }
+    let (lat, lon) = split_latlon(resp.loc.as_deref().unwrap_or_default())
+        .ok_or("IP geolocation returned no coordinates")?;
+
+    Ok(ResolvedLocation {
+        lat,
+        lon,
+        city: build_display_name(&city, resp.region.as_deref(), resp.country.as_deref()),
+        short: city,
+    })
+}
+
+fn geolocate_ipwhois(client: &Client) -> Result<ResolvedLocation, String> {
+    let raw = client
         .get("https://ipwho.is/")
         .send()
         .map_err(|e| format!("IP geolocation failed: {e}"))?;
