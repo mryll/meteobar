@@ -15,6 +15,154 @@ Panel {
 
   property var anchorItem: null
 
+  // ---- location override ---------------------------------------------------
+  // meteobar geolocates by IP, and the provider it uses is badly wrong on some
+  // networks -- a Virgin Media Northern Ireland address resolves to Wakefield,
+  // England. Clicking the location label swaps it for a field, the same
+  // affordance the first-party weather panel offers, so a wrong reading is
+  // fixed where it is seen rather than by editing shell.json. Empty commits
+  // return to automatic detection.
+  property var shell: null
+  property bool editingLocation: false
+
+  function startEditingLocation() {
+    root.editingLocation = true
+    Qt.callLater(function() {
+      locationField.text = root.locationSetting
+      locationField.selectAll()
+      locationField.forceActiveFocus()
+    })
+  }
+
+  function cancelEditingLocation() {
+    root.editingLocation = false
+    root.clearSuggestions()
+    Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
+  }
+
+  function commitLocation() {
+    var v = String(locationField.text || "").trim()
+    root.editingLocation = false
+    root.clearSuggestions()
+
+    // updateEntryInline REPLACES the entry rather than merging, so every
+    // existing key has to be carried across or units / iconSet / colorMode are
+    // silently dropped.
+    var next = ({})
+    for (var k in root.settings) if (k !== "id") next[k] = root.settings[k]
+    if (v === "") delete next.location
+    else next.location = v
+
+    var wrote = false
+    if (root.shell && typeof root.shell.updateEntryInline === "function")
+      wrote = root.shell.updateEntryInline("mryll.meteobar", next) === true
+
+    // Fallback when the shell did not inject the plugin API: the CLI writes the
+    // same shell.json entry, and the file watch picks it up either way.
+    if (!wrote) {
+      locationWriteProc.command = ["omarchy", "bar", "set", "mryll.meteobar", "location", v]
+      locationWriteProc.running = true
+    }
+
+    Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
+  }
+
+  Process { id: locationWriteProc }
+
+  // ---- geocoding suggestions ----------------------------------------------
+  // Same affordance and same endpoint as the first-party weather panel: typing
+  // offers real places, so a name meteobar's geocoder would fail on never gets
+  // committed in the first place.
+  property var locationSuggestions: []
+  property int suggestionIndex: 0
+  property string geocodePendingQuery: ""
+  property string geocodeActiveQuery: ""
+
+  function clearSuggestions() {
+    geocodeDebounce.stop()
+    root.locationSuggestions = []
+    root.suggestionIndex = 0
+    root.geocodePendingQuery = ""
+  }
+
+  function requestGeocode(query) {
+    var q = String(query || "").trim()
+    if (q.length < 2) {
+      root.locationSuggestions = []
+      root.geocodePendingQuery = ""
+      return
+    }
+    root.geocodePendingQuery = q
+    if (!geocodeProc.running) root.startGeocode()
+  }
+
+  function startGeocode() {
+    root.geocodeActiveQuery = root.geocodePendingQuery
+    geocodeProc.command = ["curl", "-fsS", "--max-time", "5",
+      "https://geocoding-api.open-meteo.com/v1/search?name="
+        + encodeURIComponent(root.geocodeActiveQuery) + "&count=5&language=en&format=json"]
+    geocodeProc.running = true
+  }
+
+  function parseGeocoding(raw) {
+    try {
+      var data = JSON.parse(String(raw || "{}"))
+      var results = data.results
+      if (!results || !results.length) return []
+      var out = []
+      for (var i = 0; i < results.length; i++) {
+        var r = results[i]
+        if (!r || !r.name) continue
+        var parts = []
+        if (r.admin1) parts.push(String(r.admin1))
+        if (r.country) parts.push(String(r.country))
+        out.push({
+          name: String(r.name),
+          description: parts.join(", "),
+          // Commit every qualifier the picked result carries, never the bare
+          // name: meteobar re-geocodes whatever is stored, and its matcher
+          // requires ALL qualifiers to match. A bare "Bally, US" is ambiguous
+          // (Pennsylvania and California both answer to it) and would silently
+          // resolve to a different town than the one shown in this list.
+          commitName: [
+            String(r.name),
+            r.admin1 ? String(r.admin1) : "",
+            r.country_code ? String(r.country_code) : ""
+          ].filter(function(part) { return part !== "" }).join(", ")
+        })
+      }
+      return out
+    } catch (e) {
+      return []
+    }
+  }
+
+  function pickSuggestion(item) {
+    if (!item) return
+    locationField.text = item.commitName
+    root.commitLocation()
+  }
+
+  Timer {
+    id: geocodeDebounce
+    interval: 250
+    repeat: false
+    onTriggered: root.requestGeocode(locationField.text)
+  }
+
+  Process {
+    id: geocodeProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.locationSuggestions = root.editingLocation ? root.parseGeocoding(text) : []
+        root.suggestionIndex = 0
+        // A newer keystroke landed while this request was in flight.
+        if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startGeocode)
+      }
+    }
+  }
+
   // The bar tracks the widget mounted in its slot — BarWidget.qml — not this
   // nested panel, so popout coordination has to identify as that widget.
   property var hostWidget: null
@@ -485,9 +633,14 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      onCloseRequested: root.close()
+      // While the location field is open every keystroke belongs to it, not to
+      // the panel's single-key shortcuts -- otherwise typing "Derry" would
+      // trigger the "r" refresh mid-word.
+      blocked: root.editingLocation
+      onCloseRequested: root.editingLocation ? root.cancelEditingLocation() : root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(t) { if (t === "r") root.refresh() }
+      onReturnRequested: root.startEditingLocation()
 
       Flickable {
         id: contentScroll
@@ -575,8 +728,17 @@ Panel {
               Item {
                 anchors.left: statsRow.left
                 anchors.right: parent.right
-                height: Math.max(locationMark.implicitHeight, locationText.implicitHeight)
-                visible: root.locationName !== ""
+                // The field is taller than the plain label it stands in for.
+                // Reserve its height in BOTH states rather than switching
+                // between them: the row never moves when the label becomes a
+                // field, and the field keeps the size it wants instead of
+                // being squeezed into the label's line.
+                height: Math.max(locationMark.implicitHeight,
+                                 locationText.implicitHeight,
+                                 locationField.implicitHeight)
+                // Stays reachable while editing even when nothing resolved, so a
+                // failed lookup can still be corrected by hand.
+                visible: root.locationName !== "" || root.editingLocation
 
                 Text {
                   textFormat: Text.PlainText
@@ -597,6 +759,7 @@ Panel {
                   font.family: root.fontFam
                   font.pixelSize: Style.font.bodySmall
                   font.letterSpacing: 1
+                  visible: !root.editingLocation
                   // A long resolved name elides at the card edge instead of
                   // running under the temperature.
                   anchors.left: locationMark.right
@@ -604,6 +767,107 @@ Panel {
                   anchors.right: parent.right
                   elide: Text.ElideRight
                   anchors.verticalCenter: parent.verticalCenter
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  visible: !root.editingLocation
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.startEditingLocation()
+                }
+
+                TextField {
+                  id: locationField
+                  visible: root.editingLocation
+                  placeholderText: "Town, or empty for automatic"
+                  foreground: root.fg
+                  accent: root.panelColored ? Color.accent : root.fg
+                  font.family: root.fontFam
+                  anchors.left: locationMark.right
+                  anchors.leftMargin: Style.space(6)
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+
+                  onTextChanged: if (root.editingLocation) geocodeDebounce.restart()
+
+                  Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Escape) {
+                      root.cancelEditingLocation()
+                      event.accepted = true
+                    } else if (event.key === Qt.Key_Down) {
+                      if (root.suggestionIndex < root.locationSuggestions.length - 1) root.suggestionIndex++
+                      event.accepted = true
+                    } else if (event.key === Qt.Key_Up) {
+                      if (root.suggestionIndex > 0) root.suggestionIndex--
+                      event.accepted = true
+                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                      // Enter takes the highlighted suggestion when there is
+                      // one, so the stored value is always a form the geocoder
+                      // resolved rather than a half-typed name.
+                      if (root.locationSuggestions.length > 0)
+                        root.pickSuggestion(root.locationSuggestions[root.suggestionIndex])
+                      else
+                        root.commitLocation()
+                      event.accepted = true
+                    }
+                  }
+                }
+              }
+
+              Column {
+                id: suggestionList
+                anchors.left: statsRow.left
+                anchors.right: parent.right
+                visible: root.editingLocation && root.locationSuggestions.length > 0
+                spacing: 0
+
+                Repeater {
+                  model: root.locationSuggestions
+
+                  Rectangle {
+                    id: suggestionItem
+                    required property var modelData
+                    required property int index
+                    width: suggestionList.width
+                    height: suggestionRow.implicitHeight + Style.space(8)
+                    radius: Style.cornerRadius
+                    color: suggestionItem.index === root.suggestionIndex
+                      ? Style.hoverFillFor(root.fg, root.panelColored ? Color.accent : root.fg)
+                      : "transparent"
+
+                    Row {
+                      id: suggestionRow
+                      anchors.left: parent.left
+                      anchors.leftMargin: Style.space(6)
+                      anchors.verticalCenter: parent.verticalCenter
+                      spacing: Style.space(6)
+
+                      Text {
+                        textFormat: Text.PlainText
+                        text: suggestionItem.modelData.name
+                        color: root.fg
+                        font.family: root.fontFam
+                        font.pixelSize: Style.font.bodySmall
+                      }
+                      Text {
+                        textFormat: Text.PlainText
+                        visible: text !== ""
+                        text: suggestionItem.modelData.description
+                        color: Qt.darker(root.fg, 1.5)
+                        font.family: root.fontFam
+                        font.pixelSize: Style.font.bodySmall
+                        anchors.verticalCenter: parent.verticalCenter
+                      }
+                    }
+
+                    MouseArea {
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onPositionChanged: root.suggestionIndex = suggestionItem.index
+                      onClicked: root.pickSuggestion(suggestionItem.modelData)
+                    }
+                  }
                 }
               }
 

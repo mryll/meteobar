@@ -46,3 +46,40 @@ fn the_install_command_is_one_constant_copied_as_argv() {
         "the button gates on notInstalled, not on error text"
     );
 }
+
+#[test]
+fn a_picked_suggestion_commits_every_qualifier_it_carries() {
+    // The stored value is re-geocoded on every fetch, so a bare name can
+    // resolve somewhere other than the row that was clicked: "Bally" alone
+    // matches towns in both Pennsylvania and California.
+    assert!(
+        PANEL.contains("commitName"),
+        "a suggestion must carry a qualified commit form, not just its name"
+    );
+    assert!(
+        PANEL.contains("r.admin1") && PANEL.contains("r.country_code"),
+        "the commit form must carry the region and country-code qualifiers"
+    );
+}
+
+#[test]
+fn saving_a_location_carries_the_other_settings_across() {
+    // updateEntryInline REPLACES this widget's shell.json entry rather than
+    // merging into it, so anything not copied first is silently dropped --
+    // units, iconSet and colorMode would reset on every location edit.
+    assert!(
+        PANEL
+            .contains(r#"for (var k in root.settings) if (k !== "id") next[k] = root.settings[k]"#),
+        "every existing setting must be copied before location is written back"
+    );
+}
+
+#[test]
+fn the_panel_shortcuts_stand_down_while_the_location_is_edited() {
+    // The panel binds bare single-key shortcuts, so an unblocked key catcher
+    // fires "r" (refresh) in the middle of typing "Derry".
+    assert!(
+        PANEL.contains("blocked: root.editingLocation"),
+        "the key catcher must stand down while the field holds the keys"
+    );
+}

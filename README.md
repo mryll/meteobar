@@ -218,7 +218,7 @@ meteobar adds a class for the condition, so you can style the bar yourself:
 
 ## Omarchy shell plugin
 
-The repository is also an [Omarchy](https://omarchy.org) shell plugin. The bar shows the condition glyph and the temperature. A click on the bar opens a panel with the current conditions, the next 12 hours, and the next 6 days. A middle-click gets new data. The footer of the panel ends with a refresh control (󰑐), next to the time of the last update. The control stays disabled while a fetch runs.
+The repository is also an [Omarchy](https://omarchy.org) shell plugin. The bar shows the condition glyph and the temperature. A click on the bar opens a panel with the current conditions, the next 12 hours, and the next 6 days. A middle-click gets new data. The footer of the panel ends with a refresh control (󰑐), next to the time of the last update. The control stays disabled while a fetch runs. A click on the location, under the temperature, turns it into a search field: type a town, pick one of the suggestions, and the panel keeps it. An empty entry returns to detection by IP.
 
 <p align="center">
   <img src="screenshots/omarchy-bar.png" alt="meteobar in the Omarchy bar" width="44">
@@ -291,7 +291,7 @@ Configure these keys in the shell settings window, or in the layout entry in `sh
 |---|---|---|---|
 | `refreshMinutes` | 1-180 | `15` | Minutes between refreshes |
 | `units` | `metric`, `imperial` | `metric` | Unit system |
-| `location` | text | `""` | City name, `City, Province`, or `City, CC`. An empty value detects the location by IP |
+| `location` | text | `""` | City name, `City, Province`, or `City, CC`. An empty value detects the location by IP. The panel writes this key when you edit the location there |
 | `iconSet` | `nerd`, `weather`, `emoji`, `fontawesome` | `nerd` | Icon set. `fontawesome` needs otf-font-awesome 7 or later |
 | `colorMode` | `full`, `none`, `bar-only`, `panel-only` | `full` | Where to keep the colors |
 | `language` | `en`, `de` | `""` (auto) | Not in the settings window — set it in `shell.json` directly. Empty follows the CLI's own `LC_ALL`/`LC_MESSAGES`/`LANG`/English fallback. Needs meteobar 0.5.3 or later: an older CLI rejects `--language` |

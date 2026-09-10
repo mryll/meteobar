@@ -8,11 +8,17 @@ BarWidget {
   id: root
   moduleName: "mryll.meteobar"
 
+  // Injected by the shell when a plugin declares it. Carries
+  // updateEntryInline(), which is how the panel persists a location override
+  // back into this widget's shell.json entry.
+  property var shell: null
+
   function injectPanel() {
     var target = panelLoader.item
     if (!target) return
     if ("bar" in target) target.bar = root.bar
     if ("settings" in target) target.settings = root.settings
+    if ("shell" in target) target.shell = root.shell
     if ("anchorItem" in target) target.anchorItem = button
     if ("hostWidget" in target) target.hostWidget = root
   }
