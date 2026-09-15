@@ -22,6 +22,9 @@
       "refreshMinutes": 15,
       "units": "metric",
       "location": "",
+      "lat": "",
+      "lon": "",
+      "cityName": "",
       "iconSet": "nerd",
       "colorMode": "full"
     },
@@ -52,7 +55,28 @@
         "type": "string",
         "label": "Location",
         "defaultValue": "",
-        "description": "City name, 'City, Province' or 'City, CC' (meteobar's geocoding disambiguation). Empty auto-detects by IP."
+        "description": "City name, 'City, Province' or 'City, CC' (meteobar's geocoding disambiguation). Ignored when latitude and longitude are set; empty auto-detects by IP."
+      },
+      {
+        "key": "lat",
+        "type": "string",
+        "label": "Latitude",
+        "defaultValue": "",
+        "description": "Exact latitude. Set both latitude and longitude to bypass city geocoding."
+      },
+      {
+        "key": "lon",
+        "type": "string",
+        "label": "Longitude",
+        "defaultValue": "",
+        "description": "Exact longitude. Set both latitude and longitude to bypass city geocoding."
+      },
+      {
+        "key": "cityName",
+        "type": "string",
+        "label": "Coordinate label",
+        "defaultValue": "",
+        "description": "Display name used with exact coordinates."
       },
       {
         "key": "iconSet",

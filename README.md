@@ -291,7 +291,10 @@ Configure these keys in the shell settings window, or in the layout entry in `sh
 |---|---|---|---|
 | `refreshMinutes` | 1-180 | `15` | Minutes between refreshes |
 | `units` | `metric`, `imperial` | `metric` | Unit system |
-| `location` | text | `""` | City name, `City, Province`, or `City, CC`. An empty value detects the location by IP |
+| `location` | text | `""` | City name, `City, Province`, or `City, CC`. Ignored when `lat` and `lon` are set; an empty value detects the location by IP |
+| `lat` | text | `""` | Exact latitude; set together with `lon` to bypass city geocoding |
+| `lon` | text | `""` | Exact longitude; set together with `lat` to bypass city geocoding |
+| `cityName` | text | `""` | Display name used with exact coordinates |
 | `iconSet` | `nerd`, `weather`, `emoji`, `fontawesome` | `nerd` | Icon set. `fontawesome` needs otf-font-awesome 7 or later |
 | `colorMode` | `full`, `none`, `bar-only`, `panel-only` | `full` | Where to keep the colors |
 | `language` | `en`, `de` | `""` (auto) | Not in the settings window — set it in `shell.json` directly. Empty follows the CLI's own `LC_ALL`/`LC_MESSAGES`/`LANG`/English fallback. Needs meteobar 0.5.3 or later: an older CLI rejects `--language` |
