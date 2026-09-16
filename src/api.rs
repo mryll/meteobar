@@ -149,6 +149,36 @@ struct IpGeoResponse {
     country_code: Option<String>,
 }
 
+/// ipinfo.io's shape. Unlike ipwho.is there is no success flag, and the
+/// coordinates arrive as a single "lat,lon" string rather than two numbers.
+#[derive(Deserialize)]
+struct IpInfoResponse {
+    #[serde(default)]
+    loc: Option<String>,
+    #[serde(default)]
+    city: Option<String>,
+    #[serde(default)]
+    region: Option<String>,
+    /// Already a two-letter code, so it slots straight into the same
+    /// `build_display_name` slot as ipwho.is's `country_code`.
+    #[serde(default)]
+    country: Option<String>,
+}
+
+/// `loc` is foreign input. Rust parses "NaN" and "inf" as valid floats, and
+/// nothing stops a provider from sending 91 or 181, so a pair only counts
+/// when both numbers are finite and on the globe. Anything else is "no
+/// coordinates" and the caller moves on to the next provider.
+fn split_latlon(loc: &str) -> Option<(f64, f64)> {
+    let (lat, lon) = loc.split_once(',')?;
+    let (lat, lon): (f64, f64) = (lat.trim().parse().ok()?, lon.trim().parse().ok()?);
+    let on_globe = lat.is_finite()
+        && lon.is_finite()
+        && (-90.0..=90.0).contains(&lat)
+        && (-180.0..=180.0).contains(&lon);
+    on_globe.then_some((lat, lon))
+}
+
 pub fn geocode(client: &Client, location: &str) -> Result<ResolvedLocation, String> {
     let (search_name, qualifiers) = parse_location(location);
 
@@ -203,15 +233,62 @@ pub fn geolocate_ip(client: &Client) -> Result<ResolvedLocation, String> {
         .build()
         .unwrap_or_else(|_| client.clone());
 
-    let raw = geo_client
+    // ipinfo.io first. ipwho.is is not merely imprecise on some networks but
+    // wrong by hundreds of kilometres, and consistently so: a Virgin Media
+    // Northern Ireland address resolves to Wakefield, England, while ipinfo.io
+    // places the same address correctly. Kept as a chain rather than a straight
+    // swap so one provider being unreachable still yields a location.
+    let first = match geolocate_ipinfo(&geo_client) {
+        Ok(found) => return Ok(found),
+        Err(e) => e,
+    };
+    geolocate_ipwhois(&geo_client)
+        .map_err(|second| format!("IP geolocation failed: {first}; {second}"))
+}
+
+fn geolocate_ipinfo(client: &Client) -> Result<ResolvedLocation, String> {
+    let raw = client
+        .get("https://ipinfo.io/json")
+        .send()
+        .map_err(|e| format!("ipinfo.io: request failed: {e}"))?
+        // A 429 arrives with a JSON body of its own. Refusing it here names
+        // the status in the message instead of "no city".
+        .error_for_status()
+        .map_err(|e| format!("ipinfo.io: HTTP error: {e}"))?;
+    let resp: IpInfoResponse =
+        read_json_bounded(raw).map_err(|e| format!("ipinfo.io: parse failed: {e}"))?;
+    ipinfo_location(resp)
+}
+
+/// The pure half of the ipinfo.io lookup, so the shapes that must fall
+/// through to the next provider (bogon, blank city, bad `loc`) are testable
+/// without a network.
+fn ipinfo_location(resp: IpInfoResponse) -> Result<ResolvedLocation, String> {
+    let city = resp.city.as_deref().unwrap_or_default().trim().to_string();
+    if city.is_empty() {
+        return Err("ipinfo.io: no city in the answer".into());
+    }
+    let (lat, lon) = split_latlon(resp.loc.as_deref().unwrap_or_default())
+        .ok_or("ipinfo.io: no usable coordinates in the answer")?;
+
+    Ok(ResolvedLocation {
+        lat,
+        lon,
+        city: build_display_name(&city, resp.region.as_deref(), resp.country.as_deref()),
+        short: city,
+    })
+}
+
+fn geolocate_ipwhois(client: &Client) -> Result<ResolvedLocation, String> {
+    let raw = client
         .get("https://ipwho.is/")
         .send()
-        .map_err(|e| format!("IP geolocation failed: {e}"))?;
+        .map_err(|e| format!("ipwho.is: request failed: {e}"))?;
     let resp: IpGeoResponse =
-        read_json_bounded(raw).map_err(|e| format!("IP geolocation parse failed: {e}"))?;
+        read_json_bounded(raw).map_err(|e| format!("ipwho.is: parse failed: {e}"))?;
 
     if !resp.success {
-        return Err("IP geolocation lookup failed".into());
+        return Err("ipwho.is: lookup failed".into());
     }
 
     Ok(ResolvedLocation {
@@ -418,5 +495,62 @@ mod tests {
         let data: WeatherData = serde_json::from_str(json).expect("payload deserializes");
         assert_eq!(data.current.uv_index, Some(4.2));
         assert_eq!(data.daily.uv_index_max, vec![6.1]);
+    }
+
+    #[test]
+    fn ipinfo_loc_splits_into_lat_and_lon() {
+        assert_eq!(split_latlon("54.8636,-6.2764"), Some((54.8636, -6.2764)));
+        assert_eq!(split_latlon(" -34.66 , -58.37 "), Some((-34.66, -58.37)));
+        assert_eq!(split_latlon("90,180"), Some((90.0, 180.0)));
+    }
+
+    /// A pair that parses as numbers is still not a location when it is not
+    /// finite or not on the globe. Rust reads "NaN" and "inf" as valid f64.
+    #[test]
+    fn ipinfo_loc_off_the_globe_is_no_location() {
+        for loc in [
+            "",
+            "54.86",
+            "north,south",
+            "NaN,1",
+            "inf,1",
+            "1,-inf",
+            "91,0",
+            "0,181",
+            "-90.5,0",
+        ] {
+            assert_eq!(split_latlon(loc), None, "{loc:?} must not parse");
+        }
+    }
+
+    fn ipinfo(body: &str) -> Result<ResolvedLocation, String> {
+        ipinfo_location(serde_json::from_str(body).expect("fixture deserializes"))
+    }
+
+    #[test]
+    fn ipinfo_answer_with_a_place_resolves_to_it() {
+        let found = ipinfo(r#"{"city":" Ballymena ","region":"Northern Ireland","country":"GB","loc":"54.8636,-6.2764"}"#)
+            .expect("a full answer resolves");
+        assert_eq!((found.lat, found.lon), (54.8636, -6.2764));
+        assert_eq!(found.city, "Ballymena, Northern Ireland, GB");
+        assert_eq!(found.short, "Ballymena");
+    }
+
+    /// Each of these is an answer ipinfo.io really gives (rate limit, bogon
+    /// address) or a degenerate one. All must be an error, because an error
+    /// is what makes `geolocate_ip` go on to the next provider.
+    #[test]
+    fn ipinfo_answers_without_a_usable_place_are_errors() {
+        let cases = [
+            r#"{"status":429,"error":{"title":"Too Many Requests","message":"..."}}"#,
+            r#"{"ip":"10.0.0.1","bogon":true}"#,
+            r#"{"city":"   ","loc":"54.86,-6.27"}"#,
+            r#"{"city":"Ballymena","loc":"NaN,-6.27"}"#,
+            r#"{"city":"Ballymena","loc":"54.86"}"#,
+            r#"{"city":"Ballymena"}"#,
+        ];
+        for body in cases {
+            assert!(ipinfo(body).is_err(), "{body} must not resolve");
+        }
     }
 }

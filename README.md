@@ -459,7 +459,7 @@ Notes on the shape:
 
 ## How it works
 
-1. Resolve the location, from `--location`, from `--lat`/`--lon`, or by IP with [ipwho.is](https://ipwho.is/).
+1. Resolve the location, from `--location`, from `--lat`/`--lon`, or by IP with [ipinfo.io](https://ipinfo.io/), then [ipwho.is](https://ipwho.is/) when ipinfo.io gives no usable answer.
 2. Get the forecast from [Open-Meteo](https://open-meteo.com/), which is free and needs no API key.
 3. Keep the response in the cache for 60 seconds. The cache key holds the location, the units, and the number of days and hours. Thus, two different commands never read the same data.
 4. Print the Waybar JSON, or the structured JSON.
