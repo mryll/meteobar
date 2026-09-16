@@ -234,7 +234,7 @@ fn enter_never_takes_a_row_for_text_the_user_no_longer_has() {
         "a finished request must tag its rows with the query they answer"
     );
     assert!(
-        PANEL.contains("if (v === root.locationSetting) {"),
+        PANEL.contains("if (v === root.locationSetting && !root.hasExactCoordinates) {"),
         "an unchanged commit must not be written back"
     );
 }
