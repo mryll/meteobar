@@ -15,6 +15,237 @@ Panel {
 
   property var anchorItem: null
 
+  // ---- location override ---------------------------------------------------
+  // meteobar geolocates by IP, and the provider it uses is badly wrong on some
+  // networks -- a Virgin Media Northern Ireland address resolves to Wakefield,
+  // England. Clicking the location label swaps it for a field, the same
+  // affordance the first-party weather panel offers, so a wrong reading is
+  // fixed where it is seen rather than by editing shell.json. Empty commits
+  // return to automatic detection.
+  property bool editingLocation: false
+
+  function startEditingLocation() {
+    // Nothing to edit while the first run is still in flight: the hero (and
+    // the field in it) is hidden, so the shortcuts would go quiet for no
+    // visible reason.
+    if (!root.hasData && root.errorMessage === "") return
+    root.editingLocation = true
+    Qt.callLater(function() {
+      // Cancelled (or the panel closed) before this ran: leave it alone.
+      if (!root.editingLocation) return
+      locationField.text = root.locationSetting
+      locationField.selectAll()
+      locationField.forceActiveFocus()
+      // An unchanged text fires no textChanged, so ask explicitly: the rows
+      // for the stored value must appear on every open, not only the first.
+      geocodeDebounce.restart()
+    })
+  }
+
+  function cancelEditingLocation() {
+    root.editingLocation = false
+    root.clearSuggestions()
+    Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
+  }
+
+  function commitLocation() {
+    var v = String(locationField.text || "").trim()
+    root.clearSuggestions()
+
+    // Nothing changed: close the field and do not ask the host to rewrite an
+    // identical entry (updateEntryInline reports "unchanged" as false, which
+    // must not read as a refusal).
+    if (v === root.locationSetting) {
+      root.cancelEditingLocation()
+      return
+    }
+
+    // updateEntryInline REPLACES the entry rather than merging, so every
+    // existing key has to be carried across or units / iconSet / colorMode are
+    // silently dropped.
+    var next = ({})
+    for (var k in root.settings) if (k !== "id") next[k] = root.settings[k]
+    if (v === "") delete next.location
+    else next.location = v
+
+    // The plugin shell API rides on the bar facade the host injects into
+    // every widget (bar.shell -- the same handle the first-party clock uses
+    // to persist its format). The host injects `bar`, `moduleName` and
+    // `settings` into a widget and nothing else, so a `shell` property of our
+    // own would never be filled.
+    //
+    // No CLI fallback on purpose: `omarchy bar set` goes through the same
+    // shell IPC (omarchy-shell shell setBarWidget), so it is not an
+    // independent path, and a fire-and-forget process would lose the edit
+    // without a word. A refused write keeps the field open with the text
+    // intact instead, so nothing typed is lost.
+    var api = root.bar ? root.bar.shell : null
+    var wrote = (api && typeof api.updateEntryInline === "function")
+      ? api.updateEntryInline("mryll.meteobar", next) === true
+      : false
+    if (!wrote) {
+      console.warn("meteobar: the shell did not accept the location write; the field stays open")
+      return
+    }
+
+    root.editingLocation = false
+    Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
+  }
+
+  // ---- geocoding suggestions ----------------------------------------------
+  // Same affordance and same endpoint as the first-party weather panel: typing
+  // offers real places, so the stored value is usually a form the geocoder
+  // already resolved. Enter with no row for the current text stores the text
+  // as typed; the CLI resolves it on the next fetch, or reports its own error.
+  property var locationSuggestions: []
+  // The trimmed text the rows answer. Enter takes a row only while the text
+  // still equals it: clear the field and press Enter inside the debounce,
+  // and the result is automatic detection, never the first row of the old
+  // query.
+  property string suggestionsQuery: ""
+  property int suggestionIndex: 0
+  property string geocodePendingQuery: ""
+  property string geocodeActiveQuery: ""
+
+  function clearSuggestions() {
+    geocodeDebounce.stop()
+    root.locationSuggestions = []
+    root.suggestionsQuery = ""
+    root.suggestionIndex = 0
+    root.geocodePendingQuery = ""
+  }
+
+  // The current text, in the form both the rows and the commit use.
+  function typedLocation() {
+    return String(locationField.text || "").trim()
+  }
+
+  function requestGeocode(query) {
+    var q = String(query || "").trim()
+    if (q.length < 2) {
+      root.locationSuggestions = []
+      root.suggestionsQuery = ""
+      root.geocodePendingQuery = ""
+      return
+    }
+    root.geocodePendingQuery = q
+    if (!geocodeProc.running) root.startGeocode()
+  }
+
+  function startGeocode() {
+    // Nothing pending (the field was cleared or closed while a request was in
+    // flight): do not ask the geocoder for an empty name.
+    if (root.geocodePendingQuery === "") return
+    // One request at a time, checked HERE and not only at the callers: the
+    // debounce and the deferred re-ask can both land while a run is active.
+    // Quickshell queues a second `running = true` as a repeat run, and moving
+    // `geocodeActiveQuery` under it would tag the old answer with the new
+    // query. A run is over only when BOTH its exit and its stream end have
+    // been seen (the two arrive in either order, as meteoProc knows); the
+    // pending query waits, and geocodeMaybeContinue re-asks.
+    if (geocodeProc.running || !root.geocodeStreamDone) return
+    root.geocodeStreamDone = false
+    root.geocodeActiveQuery = root.geocodePendingQuery
+    // Through sh, never direct (claudebar#6). The size cap is a belt for the
+    // collector's tripwire below: a healthy answer is a few kilobytes.
+    geocodeProc.command = ["/bin/sh", "-c", 'exec "$0" "$@"',
+      "curl", "-fsS", "--max-time", "5", "--proto", "=https",
+      "--max-filesize", String(root.geocodeMaxChars),
+      "https://geocoding-api.open-meteo.com/v1/search?name="
+        + encodeURIComponent(root.geocodeActiveQuery) + "&count=5&language=en&format=json"]
+    geocodeProc.running = true
+  }
+
+  // Same tripwire shape as the CLI collector: refuse to retain an answer
+  // that could not have come from a healthy request.
+  readonly property int geocodeMaxChars: 256 * 1024
+
+  // True once the current run's stdout has been fully read; the run's exit
+  // is `geocodeProc.running` going false. Only with both may a new run start.
+  property bool geocodeStreamDone: true
+
+  function geocodeMaybeContinue() {
+    if (geocodeProc.running || !root.geocodeStreamDone) return
+    // A newer query landed while the last request was in flight: ask again
+    // for the current text.
+    if (root.editingLocation && root.geocodePendingQuery !== root.geocodeActiveQuery)
+      Qt.callLater(root.startGeocode)
+  }
+
+  function parseGeocoding(raw) {
+    try {
+      var data = JSON.parse(String(raw || "{}"))
+      var results = data ? data.results : null
+      // A real array, and no more rows than the URL asked for: a body is
+      // foreign input, and this loop runs on the shell's thread. An object
+      // with a `length` of a billion would otherwise be walked to the end.
+      if (!Array.isArray(results)) return []
+      var out = []
+      for (var i = 0; i < Math.min(results.length, 5); i++) {
+        var r = results[i]
+        if (!r || typeof r !== "object" || typeof r.name !== "string" || r.name === "") continue
+        // Every field that reaches the row or the stored value must be a
+        // non-empty string: a body is foreign input, and String() on an
+        // object would store "[object Object]" as a qualifier.
+        var admin1 = typeof r.admin1 === "string" ? r.admin1 : ""
+        var country = typeof r.country === "string" ? r.country : ""
+        var countryCode = typeof r.country_code === "string" ? r.country_code : ""
+        var parts = []
+        if (admin1 !== "") parts.push(admin1)
+        if (country !== "") parts.push(country)
+        out.push({
+          name: r.name,
+          description: parts.join(", "),
+          // Commit every qualifier the picked result carries, never the bare
+          // name: meteobar re-geocodes whatever is stored, and its matcher
+          // requires ALL qualifiers to match. A bare "Bally, US" is ambiguous
+          // (Pennsylvania and California both answer to it) and would silently
+          // resolve to a different town than the one shown in this list.
+          commitName: [r.name, admin1, countryCode]
+            .filter(function(part) { return part !== "" }).join(", ")
+        })
+      }
+      return out
+    } catch (e) {
+      return []
+    }
+  }
+
+  function pickSuggestion(item) {
+    if (!item) return
+    locationField.text = item.commitName
+    root.commitLocation()
+  }
+
+  Timer {
+    id: geocodeDebounce
+    interval: 250
+    repeat: false
+    onTriggered: root.requestGeocode(locationField.text)
+  }
+
+  Process {
+    id: geocodeProc
+    onRunningChanged: if (!running) root.geocodeMaybeContinue()
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.geocodeStreamDone = true
+        // The rows are kept only when the field is still open AND this answer
+        // is for the text the user still has; an answer for an older query
+        // leaves the old rows alone (Enter will not take them: they are
+        // tagged with their own query). Either way, the re-ask goes through
+        // geocodeMaybeContinue, which waits for the exit as well.
+        if (root.editingLocation && root.geocodePendingQuery === root.geocodeActiveQuery) {
+          root.locationSuggestions = text.length <= root.geocodeMaxChars ? root.parseGeocoding(text) : []
+          root.suggestionsQuery = root.geocodeActiveQuery
+          root.suggestionIndex = 0
+        }
+        root.geocodeMaybeContinue()
+      }
+    }
+  }
+
   // The bar tracks the widget mounted in its slot — BarWidget.qml — not this
   // nested panel, so popout coordination has to identify as that widget.
   property var hostWidget: null
@@ -172,7 +403,13 @@ Panel {
   // there is no retargeting while the sweep runs).
   property real openProgress: 1
 
-  onOpenedChanged: if (opened) openAnim.restart()
+  onOpenedChanged: {
+    if (opened) openAnim.restart()
+    // A close from anywhere (outside click, IPC, popout switch) ends the
+    // edit: nothing may keep searching behind a hidden panel, and the next
+    // open must land on the key catcher, not on a blocked one.
+    else if (editingLocation) cancelEditingLocation()
+  }
 
   NumberAnimation {
     id: openAnim
@@ -520,9 +757,14 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      onCloseRequested: root.close()
+      // While the location field is open every keystroke belongs to it, not to
+      // the panel's single-key shortcuts -- otherwise typing "Derry" would
+      // trigger the "r" refresh mid-word.
+      blocked: root.editingLocation
+      onCloseRequested: root.editingLocation ? root.cancelEditingLocation() : root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(t) { if (t === "r") root.refresh() }
+      onReturnRequested: root.startEditingLocation()
 
       Flickable {
         id: contentScroll
@@ -543,7 +785,10 @@ Panel {
           Item {
             width: parent.width
             height: Math.max(heroLeft.height, heroRight.height)
-            visible: root.hasData
+            // Also while editing: with no payload yet (a stored location
+            // that never resolved), the field is the only way out, and
+            // every reading in here already renders blank on null.
+            visible: root.hasData || root.editingLocation
 
             Row {
               id: heroLeft
@@ -610,8 +855,17 @@ Panel {
               Item {
                 anchors.left: statsRow.left
                 anchors.right: parent.right
-                height: Math.max(locationMark.implicitHeight, locationText.implicitHeight)
-                visible: root.locationName !== ""
+                // The field is taller than the plain label it stands in for.
+                // Reserve its height in BOTH states rather than switching
+                // between them: the row never moves when the label becomes a
+                // field, and the field keeps the size it wants instead of
+                // being squeezed into the label's line.
+                height: Math.max(locationMark.implicitHeight,
+                                 locationText.implicitHeight,
+                                 locationField.implicitHeight)
+                // Stays reachable while editing even when nothing resolved, so a
+                // failed lookup can still be corrected by hand.
+                visible: root.locationName !== "" || root.editingLocation
 
                 Text {
                   textFormat: Text.PlainText
@@ -632,6 +886,7 @@ Panel {
                   font.family: root.fontFam
                   font.pixelSize: Style.font.bodySmall
                   font.letterSpacing: 1
+                  visible: !root.editingLocation
                   // A long resolved name elides at the card edge instead of
                   // running under the temperature.
                   anchors.left: locationMark.right
@@ -639,6 +894,125 @@ Panel {
                   anchors.right: parent.right
                   elide: Text.ElideRight
                   anchors.verticalCenter: parent.verticalCenter
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  visible: !root.editingLocation
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.startEditingLocation()
+                }
+
+                TextField {
+                  id: locationField
+                  visible: root.editingLocation
+                  placeholderText: "Town, or empty for automatic"
+                  foreground: root.fg
+                  accent: root.panelColored ? Color.accent : root.fg
+                  font.family: root.fontFam
+                  anchors.left: locationMark.right
+                  anchors.leftMargin: Style.space(6)
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+
+                  onTextChanged: if (root.editingLocation) geocodeDebounce.restart()
+
+                  Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Escape) {
+                      root.cancelEditingLocation()
+                      event.accepted = true
+                    } else if (event.key === Qt.Key_Down) {
+                      if (root.suggestionIndex < root.locationSuggestions.length - 1) root.suggestionIndex++
+                      event.accepted = true
+                    } else if (event.key === Qt.Key_Up) {
+                      if (root.suggestionIndex > 0) root.suggestionIndex--
+                      event.accepted = true
+                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                      // Enter takes the highlighted row when the rows answer
+                      // the text as it is now, so the stored value is a form
+                      // the geocoder resolved rather than a half-typed name.
+                      // Rows for an older text are not taken: an empty field
+                      // means automatic detection, whatever is still listed.
+                      var typed = root.typedLocation()
+                      if (typed !== "" && root.locationSuggestions.length > 0 && root.suggestionsQuery === typed)
+                        root.pickSuggestion(root.locationSuggestions[root.suggestionIndex])
+                      else
+                        root.commitLocation()
+                      event.accepted = true
+                    }
+                  }
+                }
+              }
+
+              Column {
+                id: suggestionList
+                anchors.left: statsRow.left
+                anchors.right: parent.right
+                visible: root.editingLocation && root.locationSuggestions.length > 0
+                spacing: 0
+
+                Repeater {
+                  model: root.locationSuggestions
+
+                  Rectangle {
+                    id: suggestionItem
+                    required property var modelData
+                    required property int index
+                    width: suggestionList.width
+                    height: suggestionRow.implicitHeight + Style.space(8)
+                    radius: Style.cornerRadius
+                    color: suggestionItem.index === root.suggestionIndex
+                      ? Style.hoverFillFor(root.fg, root.panelColored ? Color.accent : root.fg)
+                      : "transparent"
+
+                    Row {
+                      id: suggestionRow
+                      anchors.left: parent.left
+                      anchors.leftMargin: Style.space(6)
+                      anchors.verticalCenter: parent.verticalCenter
+                      spacing: Style.space(6)
+
+                      Text {
+                        id: suggestionName
+                        textFormat: Text.PlainText
+                        text: suggestionItem.modelData.name
+                        color: root.fg
+                        font.family: root.fontFam
+                        font.pixelSize: Style.font.bodySmall
+                        // A long name elides at the row edge instead of
+                        // running under the card, and leaves the region at
+                        // least a third of the row when there is one: the
+                        // region is what tells two towns apart.
+                        width: Math.min(implicitWidth, Math.max(0,
+                          suggestionItem.modelData.description !== ""
+                            ? suggestionItem.width * 0.6
+                            : suggestionItem.width - Style.space(12)))
+                        elide: Text.ElideRight
+                      }
+                      Text {
+                        textFormat: Text.PlainText
+                        visible: text !== ""
+                        text: suggestionItem.modelData.description
+                        color: Qt.darker(root.fg, 1.5)
+                        font.family: root.fontFam
+                        font.pixelSize: Style.font.bodySmall
+                        anchors.verticalCenter: parent.verticalCenter
+                        // The region is what tells two towns apart, so it
+                        // keeps whatever room the name leaves and elides,
+                        // rather than vanishing past the edge.
+                        width: Math.min(implicitWidth, Math.max(0, suggestionItem.width - suggestionName.width - Style.space(18)))
+                        elide: Text.ElideRight
+                      }
+                    }
+
+                    MouseArea {
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onPositionChanged: root.suggestionIndex = suggestionItem.index
+                      onClicked: root.pickSuggestion(suggestionItem.modelData)
+                    }
+                  }
                 }
               }
 
@@ -958,14 +1332,33 @@ Panel {
             Text {
               id: errorText
               anchors.left: parent.left
-              anchors.right: copyInstallButton.visible ? copyInstallButton.left : parent.right
-              anchors.rightMargin: copyInstallButton.visible ? Style.space(8) : 0
+              anchors.right: copyInstallButton.visible ? copyInstallButton.left
+                : (editLocationButton.visible ? editLocationButton.left : parent.right)
+              anchors.rightMargin: (copyInstallButton.visible || editLocationButton.visible) ? Style.space(8) : 0
               wrapMode: Text.Wrap
               textFormat: Text.PlainText
               text: root.errorMessage
               color: root.panelColored ? root.urgentColor : root.fg
               font.family: root.fontFam
               font.pixelSize: Style.font.bodySmall
+            }
+
+            // With no payload ever received, the hero (and the location field
+            // in it) is hidden, so the error row carries the way in: a stored
+            // location that does not resolve is fixed from here.
+            PanelActionButton {
+              id: editLocationButton
+              visible: !root.hasData && !root.notInstalled && !root.editingLocation
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              iconText: "󰍎"
+              tooltipText: "Edit the location"
+              foreground: Qt.darker(root.fg, 1.55)
+              hoverColor: root.fg
+              fontFamily: root.fontFam
+              fontSize: Style.font.caption
+              size: Style.space(20)
+              onClicked: root.startEditingLocation()
             }
 
             // Copies installCmd as one argv element: no shell line, no

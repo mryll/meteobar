@@ -220,7 +220,7 @@ meteobar adds a class for the condition, so you can style the bar yourself:
 
 ## Omarchy shell plugin
 
-The repository is also an [Omarchy](https://omarchy.org) shell plugin. The bar shows the condition glyph and the temperature. A click on the bar opens a panel with the current conditions, the next 12 hours, and the next 6 days. A middle-click gets new data. The footer of the panel ends with a refresh control (󰑐), next to the time of the last update. The control stays disabled while a fetch runs.
+The repository is also an [Omarchy](https://omarchy.org) shell plugin. The bar shows the condition glyph and the temperature. A click on the bar opens a panel with the current conditions, the next 12 hours, and the next 6 days. A middle-click gets new data. The footer of the panel ends with a refresh control (󰑐), next to the time of the last update. The control stays disabled while a fetch runs. A click on the location, under the temperature, turns it into a search field: type a town, pick one of the suggestions with the arrow keys and Enter (or a click), and the panel keeps it. Enter with no suggestion for the text keeps the text as typed, and the next fetch resolves it. Escape cancels. An empty entry returns to detection by IP. When no forecast was ever shown, a marker control (󰍎) in the error row opens the same field.
 
 <p align="center">
   <img src="screenshots/omarchy-bar.png" alt="meteobar in the Omarchy bar" width="44">
@@ -295,7 +295,7 @@ Configure these keys in the shell settings window, or in the layout entry in `sh
 | `units` | `metric`, `imperial` | `metric` | Unit system |
 | `temperatureUnit` | `follow`, `celsius`, `fahrenheit` | `follow` | Temperature unit on its own. `follow` takes it from `units`. Needs meteobar 0.5.4 or later: an older CLI rejects `--temperature-unit` |
 | `windSpeedUnit` | `follow`, `kmh`, `mph`, `ms`, `kn` | `follow` | Wind speed unit on its own. `follow` takes it from `units`; `mph` with metric `units` gives °C temperatures and mph wind. Needs meteobar 0.5.4 or later: an older CLI rejects `--wind-speed-unit` |
-| `location` | text | `""` | City name, `City, Province`, or `City, CC`. Ignored when `lat` and `lon` are set; an empty value detects the location by IP |
+| `location` | text | `""` | City name, `City, Province`, or `City, CC`. Ignored when `lat` and `lon` are set; an empty value detects the location by IP. The panel writes this key when you edit the location there |
 | `lat` | text | `""` | Exact latitude, decimal point (`-34.6`). Set together with `lon` to bypass city geocoding; with either one empty, both are ignored. Two values that are not numbers give an error in the panel, with no fallback |
 | `lon` | text | `""` | Exact longitude, decimal point (`-58.4`). Same rules as `lat` |
 | `cityName` | text | `""` | Display name used with exact coordinates. Ignored without them |
