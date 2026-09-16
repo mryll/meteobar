@@ -292,9 +292,9 @@ Configure these keys in the shell settings window, or in the layout entry in `sh
 | `refreshMinutes` | 1-180 | `15` | Minutes between refreshes |
 | `units` | `metric`, `imperial` | `metric` | Unit system |
 | `location` | text | `""` | City name, `City, Province`, or `City, CC`. Ignored when `lat` and `lon` are set; an empty value detects the location by IP |
-| `lat` | text | `""` | Exact latitude; set together with `lon` to bypass city geocoding |
-| `lon` | text | `""` | Exact longitude; set together with `lat` to bypass city geocoding |
-| `cityName` | text | `""` | Display name used with exact coordinates |
+| `lat` | text | `""` | Exact latitude, decimal point (`-34.6`). Set together with `lon` to bypass city geocoding; with either one empty, both are ignored. Two values that are not numbers give an error in the panel, with no fallback |
+| `lon` | text | `""` | Exact longitude, decimal point (`-58.4`). Same rules as `lat` |
+| `cityName` | text | `""` | Display name used with exact coordinates. Ignored without them |
 | `iconSet` | `nerd`, `weather`, `emoji`, `fontawesome` | `nerd` | Icon set. `fontawesome` needs otf-font-awesome 7 or later |
 | `colorMode` | `full`, `none`, `bar-only`, `panel-only` | `full` | Where to keep the colors |
 | `language` | `en`, `de` | `""` (auto) | Not in the settings window — set it in `shell.json` directly. Empty follows the CLI's own `LC_ALL`/`LC_MESSAGES`/`LANG`/English fallback. Needs meteobar 0.5.3 or later: an older CLI rejects `--language` |

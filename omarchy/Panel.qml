@@ -226,8 +226,9 @@ Panel {
       cmd.push("--lon")
       cmd.push(lonSetting)
       if (cityNameSetting !== "") {
-        cmd.push("--city-name")
-        cmd.push(cityNameSetting)
+        // Joined with `=`: passed as its own argv element, a name that starts
+        // with a hyphen ("-Casa") reads as an option and clap rejects it.
+        cmd.push("--city-name=" + cityNameSetting)
       }
     } else if (locationSetting !== "") {
       cmd.push("--location")

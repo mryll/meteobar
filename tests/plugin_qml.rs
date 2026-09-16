@@ -69,14 +69,37 @@ fn exact_coordinates_are_exposed_and_forwarded_to_meteobar() {
         ),
         "exact coordinates require both latitude and longitude"
     );
-    for argument in ["--lat", "--lon", "--city-name"] {
+    // The pairs are pinned, not just the flag names: a test that only looks
+    // for `--lat` would still pass with the two values swapped.
+    assert!(
+        PANEL.contains("cmd.push(\"--lat\")\n      cmd.push(latSetting)"),
+        "adapter must forward --lat followed by latSetting"
+    );
+    assert!(
+        PANEL.contains("cmd.push(\"--lon\")\n      cmd.push(lonSetting)"),
+        "adapter must forward --lon followed by lonSetting"
+    );
+    // Joined with `=`: as a separate argv element a name that starts with a
+    // hyphen reads as an option and clap rejects it.
+    assert!(
+        PANEL.contains(r#"cmd.push("--city-name=" + cityNameSetting)"#),
+        "adapter must forward --city-name joined with = to its value"
+    );
+    for setting in ["latSetting", "lonSetting", "cityNameSetting"] {
         assert!(
-            PANEL.contains(&format!(r#"cmd.push("{argument}")"#)),
-            "adapter must forward {argument} to meteobar"
+            fetch_key_line().contains(setting),
+            "{setting} must be part of fetchKey so a change refetches"
         );
     }
     assert!(
         PANEL.contains(r#"} else if (locationSetting !== "") {"#),
-        "the city-name setting remains the fallback when coordinates are incomplete"
+        "the location setting remains the fallback when coordinates are incomplete"
     );
+}
+
+fn fetch_key_line() -> &'static str {
+    PANEL
+        .lines()
+        .find(|l| l.contains("readonly property string fetchKey:"))
+        .expect("Panel.qml declares fetchKey")
 }

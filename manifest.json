@@ -62,21 +62,21 @@
         "type": "string",
         "label": "Latitude",
         "defaultValue": "",
-        "description": "Exact latitude. Set both latitude and longitude to bypass city geocoding."
+        "description": "Exact latitude, decimal point (-34.6). Set both latitude and longitude to bypass city geocoding; with either one empty, both are ignored."
       },
       {
         "key": "lon",
         "type": "string",
         "label": "Longitude",
         "defaultValue": "",
-        "description": "Exact longitude. Set both latitude and longitude to bypass city geocoding."
+        "description": "Exact longitude, decimal point (-58.4). Set both latitude and longitude to bypass city geocoding; with either one empty, both are ignored."
       },
       {
         "key": "cityName",
         "type": "string",
         "label": "Coordinate label",
         "defaultValue": "",
-        "description": "Display name used with exact coordinates."
+        "description": "Display name used with exact coordinates. Ignored without them."
       },
       {
         "key": "iconSet",
