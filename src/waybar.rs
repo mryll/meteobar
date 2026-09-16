@@ -2,7 +2,7 @@ use chrono::Datelike;
 use serde::Serialize;
 use unicode_width::UnicodeWidthStr;
 
-use crate::api::WeatherData;
+use crate::api::{Units, WeatherData};
 use crate::forecast::{self, DaySlot, HourSlot};
 use crate::format::degrees_to_cardinal;
 use crate::i18n::{self, Language};
@@ -163,7 +163,10 @@ pub fn build_tooltip(
     tooltip_format: &TooltipFormat,
     days: u8,
     hours: u8,
-    unit_label: &str,
+    // Both labels come from the core's unit resolution, never from each other:
+    // °C with mph is a legal pairing, so the wind label cannot be inferred
+    // from the temperature one.
+    units: Units,
     colors: &ThemeColors,
     last_fetched: Option<chrono::DateTime<chrono::Local>>,
     // Some(reason) when the payload is a stale fallback. The freshness footer
@@ -201,7 +204,8 @@ pub fn build_tooltip(
         tooltip_icons,
         language,
     );
-    let speed_unit = if unit_label == "°F" { "mph" } else { "km/h" };
+    let unit_label = units.temperature.label();
+    let speed_unit = units.wind_speed.label();
 
     let (c_text, c_dim, c_accent) = (&colors.text, &colors.dim, &colors.accent);
 
@@ -521,7 +525,7 @@ mod tests {
             &TooltipFormat::Both,
             1,
             1,
-            "°C",
+            Units::metric(),
             &ThemeColors::default(),
             None,
             None,
@@ -529,6 +533,42 @@ mod tests {
             paint,
             Language::En,
         )
+    }
+
+    fn tooltip_with_units(units: Units) -> String {
+        build_tooltip(
+            "Berlin",
+            &fixture(),
+            &TooltipFormat::Both,
+            1,
+            1,
+            units,
+            &ThemeColors::default(),
+            None,
+            None,
+            "JetBrainsMono Nerd Font, JetBrainsMono Nerd Font Mono, monospace",
+            Paint::new(false),
+            Language::En,
+        )
+    }
+
+    /// The UK pairing: °C with mph. The wind label used to be inferred from
+    /// the temperature label, so this case rendered an mph number as "km/h".
+    #[test]
+    fn the_wind_label_follows_its_own_unit_not_the_temperature_one() {
+        let mixed = Units {
+            temperature: crate::api::TemperatureUnit::Celsius,
+            wind_speed: crate::api::WindSpeedUnit::Mph,
+        };
+        let tooltip = tooltip_with_units(mixed);
+        assert!(tooltip.contains("°C"), "temperature keeps its own unit");
+        assert!(tooltip.contains(" mph"), "wind is labelled in mph");
+        assert!(!tooltip.contains("km/h"), "no km/h leaks from the °C label");
+
+        let metric = tooltip_with_units(Units::metric());
+        assert!(metric.contains("°C") && metric.contains("km/h"));
+        let imperial = tooltip_with_units(Units::imperial());
+        assert!(imperial.contains("°F") && imperial.contains(" mph"));
     }
 
     // ---- flag / env resolution ------------------------------------------
@@ -642,7 +682,7 @@ mod tests {
             &TooltipFormat::Both,
             1,
             1,
-            "°C",
+            Units::metric(),
             &ThemeColors::default(),
             None,
             None,
@@ -681,7 +721,7 @@ mod tests {
                 days: 1,
                 hours: 3,
                 icon_set: &IconSet::Nerd,
-                imperial: false,
+                units: crate::api::Units::metric(),
                 language: Language::En,
             },
             crate::structured::CacheInfo::empty(),
@@ -762,7 +802,7 @@ mod tests {
             &TooltipFormat::Both,
             7,
             24,
-            "°C",
+            Units::metric(),
             &ThemeColors::default(),
             None,
             None,

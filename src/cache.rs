@@ -60,7 +60,10 @@ fn open_regular_write(path: &Path, truncate: bool) -> std::io::Result<fs::File> 
 /// coords pair, or the auto/IP marker) — building the key never geocodes.
 pub struct CacheKey {
     pub location: String,
-    pub units: &'static str,
+    /// Both units, not a system name: the cached payload holds already
+    /// converted numbers, so a °C/mph request must never be served a cached
+    /// °C/km-h one.
+    pub units: String,
     pub days: u8,
     pub hours: u8,
 }
@@ -273,10 +276,10 @@ impl Cache {
 mod tests {
     use super::*;
 
-    fn test_key(location: &str, units: &'static str, days: u8, hours: u8) -> CacheKey {
+    fn test_key(location: &str, units: &str, days: u8, hours: u8) -> CacheKey {
         CacheKey {
             location: location.to_string(),
-            units,
+            units: units.to_string(),
             days,
             hours,
         }
