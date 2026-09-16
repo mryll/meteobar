@@ -89,6 +89,10 @@ Panel {
   readonly property int refreshMinutes: Math.max(1, parseInt(setting("refreshMinutes", 15), 10) || 15)
   readonly property string unitsSetting: String(setting("units", "metric")) === "imperial" ? "imperial" : "metric"
   readonly property string locationSetting: String(setting("location", "")).trim()
+  readonly property string latSetting: String(setting("lat", "")).trim()
+  readonly property string lonSetting: String(setting("lon", "")).trim()
+  readonly property string cityNameSetting: String(setting("cityName", "")).trim()
+  readonly property bool hasExactCoordinates: latSetting !== "" && lonSetting !== ""
   // Empty means "not set" — the CLI falls back to LC_MESSAGES/LANG, then
   // English, on its own. Not exposed in manifest.json: unlike units, this
   // has a sensible automatic default, so it is set (if at all) by editing
@@ -115,7 +119,7 @@ Panel {
   readonly property bool barColored: colorMode === "full" || colorMode === "bar-only"
 
   // Refetch when any setting that changes the payload changes.
-  readonly property string fetchKey: unitsSetting + "|" + locationSetting + "|" + iconSetSetting + "|" + languageSetting
+  readonly property string fetchKey: unitsSetting + "|" + locationSetting + "|" + latSetting + "|" + lonSetting + "|" + cityNameSetting + "|" + iconSetSetting + "|" + languageSetting
   onFetchKeyChanged: Qt.callLater(refresh)
 
   // Open with fresh data. open/close/toggle shadow the Panel base so every
@@ -216,7 +220,17 @@ Panel {
   function buildCmd() {
     var cmd = ["meteobar", "--output", "json", "--days", "6", "--hours", "12",
                "--units", unitsSetting, "--icons", iconSetSetting]
-    if (locationSetting !== "") {
+    if (hasExactCoordinates) {
+      cmd.push("--lat")
+      cmd.push(latSetting)
+      cmd.push("--lon")
+      cmd.push(lonSetting)
+      if (cityNameSetting !== "") {
+        // Joined with `=`: passed as its own argv element, a name that starts
+        // with a hyphen ("-Casa") reads as an option and clap rejects it.
+        cmd.push("--city-name=" + cityNameSetting)
+      }
+    } else if (locationSetting !== "") {
       cmd.push("--location")
       cmd.push(locationSetting)
     }
