@@ -55,7 +55,7 @@ Panel {
     // Nothing changed: close the field and do not ask the host to rewrite an
     // identical entry (updateEntryInline reports "unchanged" as false, which
     // must not read as a refusal).
-    if (v === root.locationSetting) {
+    if (v === root.locationSetting && !root.hasExactCoordinates) {
       root.cancelEditingLocation()
       return
     }
@@ -67,6 +67,12 @@ Panel {
     for (var k in root.settings) if (k !== "id") next[k] = root.settings[k]
     if (v === "") delete next.location
     else next.location = v
+    // Stored coordinates win over `location` in buildCmd, so a place picked
+    // here would change nothing while they exist. An edit in the panel is the
+    // newer intent: the pair goes, with the label that only made sense for it.
+    delete next.lat
+    delete next.lon
+    delete next.cityName
 
     // The plugin shell API rides on the bar facade the host injects into
     // every widget (bar.shell -- the same handle the first-party clock uses

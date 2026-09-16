@@ -130,6 +130,18 @@ fn saving_a_location_carries_the_other_settings_across() {
             .contains(r#"for (var k in root.settings) if (k !== "id") next[k] = root.settings[k]"#),
         "every existing setting must be copied before location is written back"
     );
+    // Coordinates take precedence over `location` in buildCmd, so a place
+    // picked in the panel must drop them or the pick would change nothing.
+    for key in ["lat", "lon", "cityName"] {
+        assert!(
+            PANEL.contains(&format!("delete next.{key}")),
+            "a location edit must drop the stored {key}"
+        );
+    }
+    assert!(
+        PANEL.contains("if (v === root.locationSetting && !root.hasExactCoordinates) {"),
+        "the unchanged-text shortcut must not skip the write while coordinates exist"
+    );
 }
 
 #[test]

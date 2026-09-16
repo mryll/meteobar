@@ -295,7 +295,7 @@ Configure these keys in the shell settings window, or in the layout entry in `sh
 | `units` | `metric`, `imperial` | `metric` | Unit system |
 | `temperatureUnit` | `follow`, `celsius`, `fahrenheit` | `follow` | Temperature unit on its own. `follow` takes it from `units`. Needs meteobar 0.5.4 or later: an older CLI rejects `--temperature-unit` |
 | `windSpeedUnit` | `follow`, `kmh`, `mph`, `ms`, `kn` | `follow` | Wind speed unit on its own. `follow` takes it from `units`; `mph` with metric `units` gives °C temperatures and mph wind. Needs meteobar 0.5.4 or later: an older CLI rejects `--wind-speed-unit` |
-| `location` | text | `""` | City name, `City, Province`, or `City, CC`. Ignored when `lat` and `lon` are set; an empty value detects the location by IP. The panel writes this key when you edit the location there |
+| `location` | text | `""` | City name, `City, Province`, or `City, CC`. Ignored when `lat` and `lon` are set; an empty value detects the location by IP. The panel writes this key when you edit the location there, and removes `lat`, `lon` and `cityName` so the pick takes effect |
 | `lat` | text | `""` | Exact latitude, decimal point (`-34.6`). Set together with `lon` to bypass city geocoding; with either one empty, both are ignored. Two values that are not numbers give an error in the panel, with no fallback |
 | `lon` | text | `""` | Exact longitude, decimal point (`-58.4`). Same rules as `lat` |
 | `cityName` | text | `""` | Display name used with exact coordinates. Ignored without them |
