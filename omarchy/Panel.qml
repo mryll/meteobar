@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Forecast panel. Owns the meteobar process and the refresh timer, so the bar
@@ -264,7 +265,7 @@ Panel {
   // reference for a card, and a theme that defines popups.text separately would
   // be ignored outright. (printbar already did this; the rest of the family now
   // agrees.)
-  readonly property color fg: Color.popups.text
+  readonly property color fg: Commons.Color.popups.text
 
   // ---- Hero-data scale.
   //
@@ -282,7 +283,7 @@ Panel {
 
   readonly property int heroGlyphSize: Math.round(Style.font.display * 2.67)
   readonly property int heroValueSize: Math.round(Style.font.display * 2.33)
-  readonly property color urgentColor: bar ? bar.urgent : Color.urgent
+  readonly property color urgentColor: bar ? bar.urgent : Commons.Color.urgent
   readonly property string fontFam: bar ? bar.fontFamily : Style.font.family
 
   // ---- data ----------------------------------------------------------------
@@ -665,7 +666,7 @@ Panel {
     if (corePalette && corePalette.precip_ramp) return rampColor(corePalette.precip_ramp, p || 0)
     // Fallback: a payload without a palette.
     var t = Math.max(0, Math.min(1, (Number(p) - 20) / 60.0))
-    return lerpColor(Qt.darker(fg, 1.55), Color.accent, t)
+    return lerpColor(Qt.darker(fg, 1.55), Commons.Color.accent, t)
   }
 
   // Theme-aware cold/heat anchors: fixed blue/red hues, but lightness taken
@@ -914,7 +915,7 @@ Panel {
                   visible: root.editingLocation
                   placeholderText: "Town, or empty for automatic"
                   foreground: root.fg
-                  accent: root.panelColored ? Color.accent : root.fg
+                  accent: root.panelColored ? Commons.Color.accent : root.fg
                   font.family: root.fontFam
                   anchors.left: locationMark.right
                   anchors.leftMargin: Style.space(6)
@@ -968,7 +969,7 @@ Panel {
                     height: suggestionRow.implicitHeight + Style.space(8)
                     radius: Style.cornerRadius
                     color: suggestionItem.index === root.suggestionIndex
-                      ? Style.hoverFillFor(root.fg, root.panelColored ? Color.accent : root.fg)
+                      ? Style.hoverFillFor(root.fg, root.panelColored ? Commons.Color.accent : root.fg)
                       : "transparent"
 
                     Row {
