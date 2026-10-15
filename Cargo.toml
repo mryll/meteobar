@@ -1,6 +1,6 @@
 [package]
 name = "meteobar"
-version = "0.5.5"
+version = "0.5.6"
 edition = "2021"
 description = "A weather widget for Waybar using Open-Meteo"
 license = "MIT"
