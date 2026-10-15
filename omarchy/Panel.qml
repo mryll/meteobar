@@ -25,18 +25,30 @@ Panel {
   // return to automatic detection.
   property bool editingLocation: false
 
+  // Shared by the field and by the probe that sizes its row while the field
+  // does not exist; the resting border is the one the field shows unfocused.
+  readonly property string locationFieldPlaceholder: "Town, or empty for automatic"
+  readonly property color locationFieldAccent: panelColored ? Commons.Color.accent : fg
+  readonly property var locationFieldRestSpec: Border.controlSpec("normal", fg, locationFieldAccent)
+
   function startEditingLocation() {
     // Nothing to edit while the first run is still in flight: the hero (and
     // the field in it) is hidden, so the shortcuts would go quiet for no
     // visible reason.
     if (!root.hasData && root.errorMessage === "") return
+    // Only on an open panel: the card keeps taking clicks through its
+    // fade-out, and an edit started there would outlive the close that
+    // already ran (and keep the field alive behind a hidden panel).
+    if (!root.opened) return
     root.editingLocation = true
     Qt.callLater(function() {
       // Cancelled (or the panel closed) before this ran: leave it alone.
       if (!root.editingLocation) return
-      locationField.text = root.locationSetting
-      locationField.selectAll()
-      locationField.forceActiveFocus()
+      var field = locationFieldLoader.item
+      if (!field) return
+      field.text = root.locationSetting
+      field.selectAll()
+      field.forceActiveFocus()
       // An unchanged text fires no textChanged, so ask explicitly: the rows
       // for the stored value must appear on every open, not only the first.
       geocodeDebounce.restart()
@@ -50,7 +62,10 @@ Panel {
   }
 
   function commitLocation() {
-    var v = String(locationField.text || "").trim()
+    // No field, nothing typed: an empty value here would store automatic
+    // detection that nobody asked for.
+    if (!locationFieldLoader.item) return
+    var v = root.typedLocation()
     root.clearSuggestions()
 
     // Nothing changed: close the field and do not ask the host to rewrite an
@@ -122,9 +137,11 @@ Panel {
     root.geocodePendingQuery = ""
   }
 
-  // The current text, in the form both the rows and the commit use.
+  // The current text, in the form both the rows and the commit use. Empty
+  // while the field does not exist (it lives only while the edit is open).
   function typedLocation() {
-    return String(locationField.text || "").trim()
+    var field = locationFieldLoader.item
+    return field ? String(field.text || "").trim() : ""
   }
 
   function requestGeocode(query) {
@@ -219,8 +236,9 @@ Panel {
   }
 
   function pickSuggestion(item) {
-    if (!item) return
-    locationField.text = item.commitName
+    var field = locationFieldLoader.item
+    if (!item || !field) return
+    field.text = item.commitName
     root.commitLocation()
   }
 
@@ -228,7 +246,7 @@ Panel {
     id: geocodeDebounce
     interval: 250
     repeat: false
-    onTriggered: root.requestGeocode(locationField.text)
+    onTriggered: root.requestGeocode(root.typedLocation())
   }
 
   Process {
@@ -867,9 +885,19 @@ Panel {
                 // between them: the row never moves when the label becomes a
                 // field, and the field keeps the size it wants instead of
                 // being squeezed into the label's line.
+                //
+                // The field itself exists only while editing (see the Loader
+                // below), so its resting height is computed from the same
+                // terms the host TextField sums: the line height of its font
+                // and placeholder, plus its vertical padding and resting
+                // border. While it exists, its real height counts too.
                 height: Math.max(locationMark.implicitHeight,
                                  locationText.implicitHeight,
-                                 locationField.implicitHeight)
+                                 locationFieldProbe.implicitHeight
+                                   + 2 * Style.spacing.inputPaddingY
+                                   + Border.top(root.locationFieldRestSpec)
+                                   + Border.bottom(root.locationFieldRestSpec),
+                                 locationFieldLoader.item ? locationFieldLoader.implicitHeight : 0)
                 // Stays reachable while editing even when nothing resolved, so a
                 // failed lookup can still be corrected by hand.
                 visible: root.locationName !== "" || root.editingLocation
@@ -910,42 +938,66 @@ Panel {
                   onClicked: root.startEditingLocation()
                 }
 
-                TextField {
-                  id: locationField
-                  visible: root.editingLocation
-                  placeholderText: "Town, or empty for automatic"
-                  foreground: root.fg
-                  accent: root.panelColored ? Commons.Color.accent : root.fg
+                // Measures the field's line height without a field: same font
+                // and text as the field's placeholder, never shown.
+                Text {
+                  id: locationFieldProbe
+                  visible: false
+                  textFormat: Text.PlainText
+                  text: root.locationFieldPlaceholder
                   font.family: root.fontFam
+                  font.pixelSize: Style.font.body
+                }
+
+                // The field exists ONLY while the location is edited. A text
+                // input that merely exists, even hidden, has Qt query the
+                // clipboard owner on every clipboard change (to keep canPaste
+                // current), on the shell's thread and with no size or time
+                // bound. This panel is loaded for the whole session (it feeds
+                // the bar label), so a resident field would let any clipboard
+                // owner stall the shell without a paste. Ending the edit, or
+                // closing the panel, destroys it.
+                Loader {
+                  id: locationFieldLoader
+                  active: root.editingLocation && root.opened
                   anchors.left: locationMark.right
                   anchors.leftMargin: Style.space(6)
                   anchors.right: parent.right
                   anchors.verticalCenter: parent.verticalCenter
 
-                  onTextChanged: if (root.editingLocation) geocodeDebounce.restart()
+                  sourceComponent: Component {
+                    TextField {
+                      placeholderText: root.locationFieldPlaceholder
+                      foreground: root.fg
+                      accent: root.locationFieldAccent
+                      font.family: root.fontFam
 
-                  Keys.onPressed: function(event) {
-                    if (event.key === Qt.Key_Escape) {
-                      root.cancelEditingLocation()
-                      event.accepted = true
-                    } else if (event.key === Qt.Key_Down) {
-                      if (root.suggestionIndex < root.locationSuggestions.length - 1) root.suggestionIndex++
-                      event.accepted = true
-                    } else if (event.key === Qt.Key_Up) {
-                      if (root.suggestionIndex > 0) root.suggestionIndex--
-                      event.accepted = true
-                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                      // Enter takes the highlighted row when the rows answer
-                      // the text as it is now, so the stored value is a form
-                      // the geocoder resolved rather than a half-typed name.
-                      // Rows for an older text are not taken: an empty field
-                      // means automatic detection, whatever is still listed.
-                      var typed = root.typedLocation()
-                      if (typed !== "" && root.locationSuggestions.length > 0 && root.suggestionsQuery === typed)
-                        root.pickSuggestion(root.locationSuggestions[root.suggestionIndex])
-                      else
-                        root.commitLocation()
-                      event.accepted = true
+                      onTextChanged: if (root.editingLocation) geocodeDebounce.restart()
+
+                      Keys.onPressed: function(event) {
+                        if (event.key === Qt.Key_Escape) {
+                          root.cancelEditingLocation()
+                          event.accepted = true
+                        } else if (event.key === Qt.Key_Down) {
+                          if (root.suggestionIndex < root.locationSuggestions.length - 1) root.suggestionIndex++
+                          event.accepted = true
+                        } else if (event.key === Qt.Key_Up) {
+                          if (root.suggestionIndex > 0) root.suggestionIndex--
+                          event.accepted = true
+                        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                          // Enter takes the highlighted row when the rows answer
+                          // the text as it is now, so the stored value is a form
+                          // the geocoder resolved rather than a half-typed name.
+                          // Rows for an older text are not taken: an empty field
+                          // means automatic detection, whatever is still listed.
+                          var typed = root.typedLocation()
+                          if (typed !== "" && root.locationSuggestions.length > 0 && root.suggestionsQuery === typed)
+                            root.pickSuggestion(root.locationSuggestions[root.suggestionIndex])
+                          else
+                            root.commitLocation()
+                          event.accepted = true
+                        }
+                      }
                     }
                   }
                 }
