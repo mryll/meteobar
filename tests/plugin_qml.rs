@@ -212,7 +212,7 @@ fn only_one_geocode_request_runs_at_a_time() {
     );
     assert!(
         PANEL.contains(
-            "if (!root.editingLocation) return\n      locationField.text = root.locationSetting"
+            "if (!root.editingLocation) return\n      var field = locationFieldLoader.item\n      if (!field) return\n      field.text = root.locationSetting"
         ),
         "the deferred open must stand down after a cancel"
     );
@@ -267,5 +267,46 @@ fn the_panel_shortcuts_stand_down_while_the_location_is_edited() {
     assert!(
         PANEL.contains("blocked: root.editingLocation"),
         "the key catcher must stand down while the field holds the keys"
+    );
+}
+
+#[test]
+fn the_location_field_exists_only_while_it_is_edited() {
+    // A text input that merely exists, even hidden, has Qt query the
+    // clipboard owner on every clipboard change. The panel lives for the
+    // whole session, so the field must be created by the edit and destroyed
+    // with it -- never kept resident and hidden.
+    assert_eq!(
+        PANEL.matches("TextField {").count(),
+        1,
+        "exactly one text field in the panel"
+    );
+    let loader = PANEL
+        .find("id: locationFieldLoader")
+        .expect("the field sits under its own Loader");
+    let field = PANEL.find("TextField {").unwrap();
+    let gate = &PANEL[loader..field];
+    assert!(
+        gate.contains("active: root.editingLocation && root.opened")
+            && gate.contains("sourceComponent: Component {"),
+        "the Loader gates the field on the edit"
+    );
+    assert!(
+        !BAR_WIDGET.contains("TextField"),
+        "no text field in the bar widget"
+    );
+    assert!(
+        PANEL.contains("if (!root.opened) return\n    root.editingLocation = true"),
+        "an edit starts only on an open panel, never during its fade-out"
+    );
+    for forbidden in ["TextInput", "TextEdit", "TextArea", "Clipboard"] {
+        assert!(
+            !PANEL.contains(forbidden) && !BAR_WIDGET.contains(forbidden),
+            "no other clipboard reader: {forbidden}"
+        );
+    }
+    assert!(
+        !PANEL.contains("id: locationField\n") && !PANEL.contains("locationField."),
+        "no reference to a resident field by id"
     );
 }
