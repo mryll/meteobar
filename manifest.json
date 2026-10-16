@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "mryll.meteobar",
   "name": "Meteobar",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "author": "mryll",
   "license": "MIT",
   "description": "Open-Meteo weather (meteobar) in the Omarchy bar: condition glyph + temperature, with an hourly and daily forecast panel.",
