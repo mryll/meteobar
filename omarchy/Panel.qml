@@ -1048,7 +1048,9 @@ Panel {
                           selectByMouse: true
                           persistentSelection: false
                           anchors.verticalCenter: parent.verticalCenter
-                          width: Math.max(locationViewport.width, contentWidth + cursorRectangle.width)
+                          // implicitWidth, not contentWidth: contentWidth follows width (binding loop).
+                          // The 2 px keep the cursor visible after the last character.
+                          width: Math.max(locationViewport.width, implicitWidth + 2)
                           color: root.fg
                           selectionColor: Style.selectionFillFor(root.fg, root.locationFieldAccent)
                           selectedTextColor: root.fg
