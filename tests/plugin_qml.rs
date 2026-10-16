@@ -272,41 +272,84 @@ fn the_panel_shortcuts_stand_down_while_the_location_is_edited() {
 
 #[test]
 fn the_location_field_exists_only_while_it_is_edited() {
-    // A text input that merely exists, even hidden, has Qt query the
-    // clipboard owner on every clipboard change. The panel lives for the
-    // whole session, so the field must be created by the edit and destroyed
-    // with it -- never kept resident and hidden.
+    // The panel lives for the whole session, so the editor must be created
+    // by the edit and destroyed with it -- never kept resident and hidden.
     assert_eq!(
-        PANEL.matches("TextField {").count(),
+        PANEL.matches("TextEdit {").count(),
         1,
-        "exactly one text field in the panel"
+        "exactly one editor in the panel"
     );
     let loader = PANEL
         .find("id: locationFieldLoader")
-        .expect("the field sits under its own Loader");
-    let field = PANEL.find("TextField {").unwrap();
+        .expect("the editor sits under its own Loader");
+    let field = PANEL.find("TextEdit {").unwrap();
     let gate = &PANEL[loader..field];
     assert!(
         gate.contains("active: root.editingLocation && root.opened")
             && gate.contains("sourceComponent: Component {"),
-        "the Loader gates the field on the edit"
-    );
-    assert!(
-        !BAR_WIDGET.contains("TextField"),
-        "no text field in the bar widget"
+        "the Loader gates the editor on the edit"
     );
     assert!(
         PANEL.contains("if (!root.opened) return\n    root.editingLocation = true"),
         "an edit starts only on an open panel, never during its fade-out"
     );
-    for forbidden in ["TextInput", "TextEdit", "TextArea", "Clipboard"] {
-        assert!(
-            !PANEL.contains(forbidden) && !BAR_WIDGET.contains(forbidden),
-            "no other clipboard reader: {forbidden}"
-        );
-    }
     assert!(
         !PANEL.contains("id: locationField\n") && !PANEL.contains("locationField."),
         "no reference to a resident field by id"
     );
+}
+
+/// The QML without its whole-line comments, which name the types they avoid.
+fn code_only(qml: &str) -> String {
+    qml.lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn the_location_editor_never_reads_the_clipboard() {
+    let panel = code_only(PANEL);
+    let bar_widget = code_only(BAR_WIDGET);
+    // At Qt 6.12.0 an editable TextInput (TextField) reads the foreign
+    // clipboard content on every clipboard change, with no byte limit and no
+    // total deadline. A plain-text TextEdit checks the offered formats only;
+    // its content reads are the paste gestures, and the editor takes them all.
+    for forbidden in [
+        "TextField",
+        "TextInput",
+        "TextArea",
+        "SearchableDropdown",
+        "Clipboard",
+        "clipboardText",
+        "paste(",
+        "wl-paste",
+    ] {
+        assert!(
+            !panel.contains(forbidden) && !bar_widget.contains(forbidden),
+            "no native editor or clipboard reader: {forbidden}"
+        );
+    }
+    assert!(
+        !bar_widget.contains("TextEdit"),
+        "no editor in the bar widget"
+    );
+    let editor = &panel[panel.find("TextEdit {").unwrap()..];
+    assert!(
+        editor.contains("textFormat: TextEdit.PlainText"),
+        "the editor is plain text"
+    );
+    for gesture in [
+        "event.matches(StandardKey.Paste)",
+        "Qt.Key_Paste",
+        "Qt.Key_F18",
+        "ctrl && event.key === Qt.Key_V",
+        "shift && event.key === Qt.Key_Insert",
+        "Keys.onShortcutOverride: function(event) { if (isPaste(event)) event.accepted = true }",
+        "if (isPaste(event)) {\n                              event.accepted = true",
+        "acceptedButtons: Qt.MiddleButton",
+        "onEntered: function(drag) { drag.accepted = false }",
+    ] {
+        assert!(editor.contains(gesture), "paste gesture not taken: {gesture}");
+    }
 }

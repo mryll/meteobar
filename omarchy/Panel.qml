@@ -30,6 +30,8 @@ Panel {
   readonly property string locationFieldPlaceholder: "Town, or empty for automatic"
   readonly property color locationFieldAccent: panelColored ? Commons.Color.accent : fg
   readonly property var locationFieldRestSpec: Border.controlSpec("normal", fg, locationFieldAccent)
+  // The longest town name the field keeps; the text becomes a geocoder query.
+  readonly property int locationMaxChars: 100
 
   function startEditingLocation() {
     // Nothing to edit while the first run is still in flight: the hero (and
@@ -949,14 +951,36 @@ Panel {
                   font.pixelSize: Style.font.body
                 }
 
-                // The field exists ONLY while the location is edited. A text
-                // input that merely exists, even hidden, has Qt query the
-                // clipboard owner on every clipboard change (to keep canPaste
-                // current), on the shell's thread and with no size or time
-                // bound. This panel is loaded for the whole session (it feeds
-                // the bar label), so a resident field would let any clipboard
-                // owner stall the shell without a paste. Ending the edit, or
-                // closing the panel, destroys it.
+                // The field exists ONLY while the location is edited, and it is
+                // a plain-text TextEdit, never a TextInput/TextField.
+                //
+                // At Qt 6.12.0 (and 6.11), every editable TextInput answers each
+                // clipboard change with QMimeData::text(): a synchronous transfer
+                // of the foreign clipboard content on the shell's thread, with no
+                // byte limit and no total deadline (qquicktextinput.cpp:3009,
+                // q_canPasteChanged). It needs no paste, no focus and no
+                // visibility. Qt removed that read upstream in qtdeclarative
+                // ef692a52 ("don't call QMimeData::text() for canPaste"); until
+                // the runtime carries it, a TextInput is unsafe here.
+                //
+                // TextEdit keeps canPaste current from the offered formats only
+                // (QQuickTextControl::canPaste -> canInsertFromMimeData ->
+                // hasText(), qquicktextcontrol.cpp:1643-1692); it never asks for
+                // the content. Its only content reads are the explicit paste
+                // gestures, and the field takes every one of them before
+                // TextEdit sees it: the Paste key sequence (Ctrl+V,
+                // Shift+Insert, F18, the Paste key) and the PRIMARY
+                // middle-click are taken and dropped, drags are refused on
+                // entry. Plain TextEdit has no context menu. The editor offers
+                // no paste at all, so there is no clipboard read to bound.
+                // Typing, the input method (compose, dead keys, fcitx) and the
+                // cursor stay native. Do not add paste(), Quickshell's
+                // clipboardText or a TextField here.
+                //
+                // The Loader still matters: the panel lives for the whole
+                // session (it feeds the bar label), and no editor is alive
+                // while nobody edits. Ending the edit, or closing the panel,
+                // destroys it.
                 Loader {
                   id: locationFieldLoader
                   active: root.editingLocation && root.opened
@@ -966,37 +990,169 @@ Panel {
                   anchors.verticalCenter: parent.verticalCenter
 
                   sourceComponent: Component {
-                    TextField {
-                      placeholderText: root.locationFieldPlaceholder
-                      foreground: root.fg
-                      accent: root.locationFieldAccent
-                      font.family: root.fontFam
+                    // Looks and sizes like the host TextField it replaces
+                    // (shell/Ui/TextField.qml): same fill, border, padding,
+                    // font and selection tint.
+                    FocusScope {
+                      id: locationBox
+                      property alias text: locationEdit.text
+                      function selectAll() { locationEdit.selectAll() }
 
-                      onTextChanged: if (root.editingLocation) geocodeDebounce.restart()
+                      readonly property bool _focused: locationEdit.activeFocus
+                      readonly property var _borderSpec: Border.controlSpec(
+                        _focused ? "focus" : (locationHover.hovered ? "hover-cursor" : "normal"),
+                        root.fg, root.locationFieldAccent)
+                      readonly property real _padX: Style.spacing.controlPaddingX
+                      readonly property real _padY: Style.spacing.inputPaddingY
 
-                      Keys.onPressed: function(event) {
-                        if (event.key === Qt.Key_Escape) {
-                          root.cancelEditingLocation()
-                          event.accepted = true
-                        } else if (event.key === Qt.Key_Down) {
-                          if (root.suggestionIndex < root.locationSuggestions.length - 1) root.suggestionIndex++
-                          event.accepted = true
-                        } else if (event.key === Qt.Key_Up) {
-                          if (root.suggestionIndex > 0) root.suggestionIndex--
-                          event.accepted = true
-                        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                          // Enter takes the highlighted row when the rows answer
-                          // the text as it is now, so the stored value is a form
-                          // the geocoder resolved rather than a half-typed name.
-                          // Rows for an older text are not taken: an empty field
-                          // means automatic detection, whatever is still listed.
-                          var typed = root.typedLocation()
-                          if (typed !== "" && root.locationSuggestions.length > 0 && root.suggestionsQuery === typed)
-                            root.pickSuggestion(root.locationSuggestions[root.suggestionIndex])
-                          else
-                            root.commitLocation()
-                          event.accepted = true
+                      implicitHeight: locationEdit.implicitHeight + 2 * _padY
+                        + Border.top(_borderSpec) + Border.bottom(_borderSpec)
+
+                      HoverHandler { id: locationHover }
+
+                      BorderSurface {
+                        anchors.fill: parent
+                        color: Style.controlFill(locationBox._focused, locationHover.hovered, root.fg, root.locationFieldAccent)
+                        borderSpec: locationBox._borderSpec
+                        radius: Style.cornerRadius
+                      }
+
+                      // One line that scrolls sideways with the cursor, as a
+                      // TextField does; TextEdit itself never scrolls.
+                      Item {
+                        id: locationViewport
+                        anchors.fill: parent
+                        anchors.leftMargin: locationBox._padX + Border.left(locationBox._borderSpec)
+                        anchors.rightMargin: locationBox._padX + Border.right(locationBox._borderSpec)
+                        anchors.topMargin: locationBox._padY + Border.top(locationBox._borderSpec)
+                        anchors.bottomMargin: locationBox._padY + Border.bottom(locationBox._borderSpec)
+                        clip: true
+
+                        Text {
+                          anchors.left: parent.left
+                          anchors.right: parent.right
+                          anchors.verticalCenter: parent.verticalCenter
+                          visible: locationEdit.text === "" && locationEdit.preeditText === ""
+                          textFormat: Text.PlainText
+                          text: root.locationFieldPlaceholder
+                          color: Qt.darker(root.fg, 1.6)
+                          font: locationEdit.font
+                          elide: Text.ElideRight
                         }
+
+                        TextEdit {
+                          id: locationEdit
+                          focus: true
+                          textFormat: TextEdit.PlainText
+                          wrapMode: TextEdit.NoWrap
+                          selectByMouse: true
+                          persistentSelection: false
+                          anchors.verticalCenter: parent.verticalCenter
+                          width: Math.max(locationViewport.width, contentWidth + cursorRectangle.width)
+                          color: root.fg
+                          selectionColor: Style.selectionFillFor(root.fg, root.locationFieldAccent)
+                          selectedTextColor: root.fg
+                          font.family: root.fontFam
+                          font.pixelSize: Style.font.body
+
+                          // Keeps the cursor inside the viewport.
+                          onCursorRectangleChanged: {
+                            var r = cursorRectangle
+                            if (r.x + x < 0) x = -r.x
+                            else if (r.x + r.width + x > locationViewport.width)
+                              x = locationViewport.width - r.x - r.width
+                            if (x < 0 && width + x < locationViewport.width)
+                              x = Math.min(0, locationViewport.width - width)
+                          }
+
+                          // One line, at most locationMaxChars code points: an
+                          // input method can commit a newline or a tab, and
+                          // the text becomes a geocoder query.
+                          property bool _cleaning: false
+                          onTextChanged: {
+                            if (_cleaning) return
+                            var clean = Array.from(text.replace(/[\r\n\t\u0085\u2028\u2029]/g, " "))
+                            if (clean.length > root.locationMaxChars) clean = clean.slice(0, root.locationMaxChars)
+                            clean = clean.join("")
+                            if (clean !== text) {
+                              var pos = Math.min(cursorPosition, clean.length)
+                              _cleaning = true
+                              text = clean
+                              cursorPosition = pos
+                              _cleaning = false
+                            }
+                            if (root.editingLocation) geocodeDebounce.restart()
+                          }
+
+                          function isPaste(event) {
+                            var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
+                            var shift = (event.modifiers & Qt.ShiftModifier) !== 0
+                            return event.matches(StandardKey.Paste)
+                              || event.key === Qt.Key_Paste || event.key === Qt.Key_F18
+                              || (ctrl && event.key === Qt.Key_V)
+                              || (shift && event.key === Qt.Key_Insert)
+                          }
+
+                          // Every paste gesture stops here (see above): the
+                          // override claims the key ahead of any host shortcut,
+                          // the press is then taken and dropped.
+                          Keys.priority: Keys.BeforeItem
+                          Keys.onShortcutOverride: function(event) { if (isPaste(event)) event.accepted = true }
+                          Keys.onPressed: function(event) {
+                            if (isPaste(event)) {
+                              event.accepted = true
+                            } else if (preeditText !== "") {
+                              // A composition is open: Enter, Escape and the
+                              // arrows belong to the input method.
+                              return
+                            } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                              // A TextField let Tab through to the blocked key
+                              // catcher (a no-op); TextEdit would insert it.
+                              event.accepted = true
+                            } else if (event.key === Qt.Key_Escape) {
+                              root.cancelEditingLocation()
+                              event.accepted = true
+                            } else if (event.key === Qt.Key_Down) {
+                              if (root.suggestionIndex < root.locationSuggestions.length - 1) root.suggestionIndex++
+                              event.accepted = true
+                            } else if (event.key === Qt.Key_Up) {
+                              if (root.suggestionIndex > 0) root.suggestionIndex--
+                              event.accepted = true
+                            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                              // Enter takes the highlighted row when the rows answer
+                              // the text as it is now, so the stored value is a form
+                              // the geocoder resolved rather than a half-typed name.
+                              // Rows for an older text are not taken: an empty field
+                              // means automatic detection, whatever is still listed.
+                              var typed = root.typedLocation()
+                              if (typed !== "" && root.locationSuggestions.length > 0 && root.suggestionsQuery === typed)
+                                root.pickSuggestion(root.locationSuggestions[root.suggestionIndex])
+                              else
+                                root.commitLocation()
+                              event.accepted = true
+                            }
+                          }
+                        }
+                      }
+
+                      // Middle-click pastes the PRIMARY selection in TextEdit:
+                      // taken here and dropped. Left and right clicks pass
+                      // through to the cursor and the selection.
+                      MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.MiddleButton
+                        cursorShape: Qt.IBeamCursor
+                        // Taking the press keeps the grab through the release,
+                        // where TextEdit would paste.
+                        onPressed: function(mouse) { mouse.accepted = true }
+                        onReleased: function(mouse) { mouse.accepted = true }
+                      }
+
+                      // Drags are refused on entry, without reading them, so
+                      // no drop (and no move from the source) can happen.
+                      DropArea {
+                        anchors.fill: parent
+                        onEntered: function(drag) { drag.accepted = false }
                       }
                     }
                   }
