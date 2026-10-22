@@ -7,29 +7,32 @@ use fs2::FileExt;
 
 const MIN_TTL_SECS: u64 = 60;
 
-/// Open a file for writing, refusing anything that is not a regular file.
+/// Open the lock file for writing, refusing anything that is not a regular file.
 ///
 /// `open(2)` blocks on a FIFO in BOTH directions: `O_WRONLY` waits for a
 /// reader exactly as `O_RDONLY` waits for a writer. `safe_read` closes the
-/// read side; these two paths are the write side of the same hole. Both sit at
-/// a name anyone can predict inside a world-readable cache directory, so
-/// whoever gets there first with `mkfifo` decides whether this process ever
-/// returns — and meteobar returning never means the omarchy-shell process
-/// hangs, not meteobar.
+/// read side; this is the write side of the same hole. The lock sits at a name
+/// anyone can predict inside a world-readable cache directory, so whoever gets
+/// there first with `mkfifo` decides whether this process ever returns — and
+/// meteobar returning never means the omarchy-shell process hangs, not
+/// meteobar.
 ///
 /// Same order as `safe_read::read_bounded`, for the same reasons: `O_NONBLOCK`
 /// on the open so a FIFO fails instead of waiting, the type check on the OPEN
 /// DESCRIPTOR so nothing can swap the path afterwards, and the flag cleared
 /// once the type is settled so it cannot turn a good write into a spurious
-/// `WouldBlock` on a filesystem that honours it. There is no byte cap here:
-/// this only ever writes what this program produced.
-fn open_regular_write(path: &Path, truncate: bool) -> std::io::Result<fs::File> {
+/// `WouldBlock` on a filesystem that honours it.
+///
+/// `O_NOFOLLOW`, unlike the read side: nobody links a lock file meteobar
+/// creates for itself, so a symlink there was planted, and following it would
+/// create or lock whatever file it names. The open fails instead.
+fn open_regular_write(path: &Path) -> std::io::Result<fs::File> {
     let mut opts = fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(truncate);
+    opts.write(true).create(true).truncate(false);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        opts.custom_flags(libc::O_NONBLOCK);
+        opts.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
     }
     let file = opts.open(path)?;
 
@@ -51,6 +54,30 @@ fn open_regular_write(path: &Path, truncate: bool) -> std::io::Result<fs::File> 
         }
     }
     Ok(file)
+}
+
+/// Create `path` as a brand-new regular file, never opening one that exists.
+///
+/// The temp file `Cache::write` renames from sits at a predictable path, so
+/// whatever is there may have been planted. Opening it, even after a type
+/// check, writes through a symlink or a hard link into the file it names. So
+/// the old entry is unlinked (which removes a symlink, never its target) and
+/// the file is created with `O_EXCL`, which refuses any entry that came back in
+/// between, a symlink included. A FIFO is never opened either, so it cannot
+/// block. Writes run under the request's lock, so no other run owns this file.
+fn create_fresh(path: &Path) -> std::io::Result<fs::File> {
+    match fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    opts.open(path)
 }
 
 /// Canonical request descriptor. Requests with different parameters get
@@ -159,7 +186,7 @@ impl Cache {
     fn write(&self, data: &str) {
         let tmp = self.dir.join(format!(".{}.tmp", self.file_name));
         let dest = self.dir.join(&self.file_name);
-        if let Ok(mut f) = open_regular_write(&tmp, true) {
+        if let Ok(mut f) = create_fresh(&tmp) {
             if f.write_all(data.as_bytes()).is_ok() {
                 fs::rename(&tmp, &dest).ok();
             }
@@ -184,7 +211,7 @@ impl Cache {
     {
         let lock_path = self.dir.join(format!(".{}.lock", self.file_name));
         let lock_file =
-            open_regular_write(&lock_path, false).map_err(|e| format!("lock open failed: {e}"))?;
+            open_regular_write(&lock_path).map_err(|e| format!("lock open failed: {e}"))?;
 
         // Any error means "not ours to take" and takes the same degraded path:
         // contention, and anything else the platform reports, are equally
@@ -294,28 +321,26 @@ mod tests {
     }
 
     #[test]
-    fn a_regular_path_opens_for_writing_in_both_truncate_modes() {
+    fn a_regular_lock_file_opens_without_losing_its_contents() {
         let dir = temp_dir("write-ok");
         let p = dir.join("f");
         fs::write(&p, "old").unwrap();
-        assert!(open_regular_write(&p, false).is_ok());
-        assert!(open_regular_write(&p, true).is_ok());
-        assert_eq!(fs::read_to_string(&p).unwrap(), "");
+        assert!(open_regular_write(&p).is_ok());
+        assert_eq!(fs::read_to_string(&p).unwrap(), "old");
     }
 
     #[cfg(unix)]
     #[test]
     fn a_fifo_at_the_lock_path_is_refused_instead_of_blocking_for_ever() {
-        // The lock and the temp file sit at predictable names in a cache
-        // directory. Without O_NONBLOCK this open never returns, and it takes
+        // The lock sits at a predictable name in a cache directory. Without
+        // O_NONBLOCK this open never returns, and it takes
         // the whole shell process with it -- which is the failure this exists
         // to stop, and it is invisible in every test that does not plant one.
         let dir = temp_dir("write-fifo");
         let p = dir.join(".weather-deadbeef.json.lock");
         let c = std::ffi::CString::new(p.to_str().unwrap()).unwrap();
         assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
-        assert!(open_regular_write(&p, false).is_err());
-        assert!(open_regular_write(&p, true).is_err());
+        assert!(open_regular_write(&p).is_err());
     }
 
     #[cfg(unix)]
@@ -324,7 +349,134 @@ mod tests {
         let dir = temp_dir("write-dir");
         let p = dir.join("d");
         fs::create_dir_all(&p).unwrap();
-        assert!(open_regular_write(&p, false).is_err());
+        assert!(open_regular_write(&p).is_err());
+    }
+
+    fn tmp_path(cache: &Cache) -> PathBuf {
+        cache.dir.join(format!(".{}.tmp", cache.file_name))
+    }
+
+    /// A symlink planted at the temp path must not carry the write into the
+    /// file it names (marketplace review): before, the open followed it,
+    /// truncated the target and wrote the payload over it.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_planted_at_the_temp_path_never_writes_through_to_its_target() {
+        let dir = temp_dir("tmp-symlink");
+        let cache = Cache::with_dir(
+            dir.clone(),
+            &test_key("auto", "metric", 3, 0),
+            Duration::ZERO,
+        );
+        let victim = dir.join("victim");
+        fs::write(&victim, "private").unwrap();
+        std::os::unix::fs::symlink(&victim, tmp_path(&cache)).unwrap();
+
+        cache.write("payload");
+
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "private");
+        assert_eq!(cache.read_stale().as_deref(), Some("payload"));
+    }
+
+    /// Following a dangling symlink would CREATE the file it names.
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_symlink_at_the_temp_path_creates_nothing_at_its_target() {
+        let dir = temp_dir("tmp-dangling");
+        let cache = Cache::with_dir(
+            dir.clone(),
+            &test_key("auto", "metric", 3, 0),
+            Duration::ZERO,
+        );
+        let victim = dir.join("never-created");
+        std::os::unix::fs::symlink(&victim, tmp_path(&cache)).unwrap();
+
+        cache.write("payload");
+
+        assert!(!victim.exists(), "the write followed the symlink");
+    }
+
+    /// A hard link needs no following at all: opening the temp path opens the
+    /// victim's inode. Only replacing the entry keeps the write off it.
+    #[cfg(unix)]
+    #[test]
+    fn a_hard_link_planted_at_the_temp_path_never_writes_into_its_inode() {
+        let dir = temp_dir("tmp-hardlink");
+        let cache = Cache::with_dir(
+            dir.clone(),
+            &test_key("auto", "metric", 3, 0),
+            Duration::ZERO,
+        );
+        let victim = dir.join("victim");
+        fs::write(&victim, "private").unwrap();
+        fs::hard_link(&victim, tmp_path(&cache)).unwrap();
+
+        cache.write("payload");
+
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "private");
+        assert_eq!(cache.read_stale().as_deref(), Some("payload"));
+    }
+
+    /// A directory at the temp path cannot be unlinked: the write gives up
+    /// silently and the cached payload stays as it was.
+    #[test]
+    fn a_directory_planted_at_the_temp_path_keeps_the_old_cache() {
+        let dir = temp_dir("tmp-dir");
+        let cache = Cache::with_dir(
+            dir.clone(),
+            &test_key("auto", "metric", 3, 0),
+            Duration::ZERO,
+        );
+        cache.write("old");
+        fs::create_dir(tmp_path(&cache)).unwrap();
+
+        cache.write("new");
+
+        assert!(tmp_path(&cache).is_dir());
+        assert_eq!(cache.read_stale().as_deref(), Some("old"));
+    }
+
+    /// A FIFO at the temp path is unlinked, never opened, so the write neither
+    /// blocks nor goes through it.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_planted_at_the_temp_path_is_replaced_instead_of_blocking() {
+        let dir = temp_dir("tmp-fifo");
+        let cache = Cache::with_dir(
+            dir.clone(),
+            &test_key("auto", "metric", 3, 0),
+            Duration::ZERO,
+        );
+        let c = std::ffi::CString::new(tmp_path(&cache).to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+
+        cache.write("payload");
+
+        assert_eq!(cache.read_stale().as_deref(), Some("payload"));
+    }
+
+    /// The lock file cannot be replaced like the temp file (other runs hold it
+    /// open), so a symlink there is refused: the open neither creates nor locks
+    /// the file it names.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_planted_at_the_lock_path_is_refused() {
+        let dir = temp_dir("lock-symlink");
+        let key = test_key("auto", "metric", 3, 0);
+        let cache = Cache::with_dir(dir.clone(), &key, Duration::ZERO);
+        let victim = dir.join("never-created");
+        let lock_path = dir.join(format!(".weather-{}.json.lock", key.digest()));
+        std::os::unix::fs::symlink(&victim, &lock_path).unwrap();
+
+        let mut fetched = false;
+        let result = cache.fetch_or_cached(|| {
+            fetched = true;
+            Ok("payload".into())
+        });
+
+        assert!(!victim.exists(), "the lock open followed the symlink");
+        assert!(result.is_err());
+        assert!(!fetched);
     }
 
     #[test]
@@ -418,10 +570,10 @@ mod tests {
 
         // Independent open, independent flock owner.
         let lock_path = dir.join(format!(".weather-{}.json.lock", key.digest()));
-        let holder = open_regular_write(&lock_path, false).unwrap();
+        let holder = open_regular_write(&lock_path).unwrap();
         holder.lock_exclusive().unwrap();
         assert!(
-            open_regular_write(&lock_path, false)
+            open_regular_write(&lock_path)
                 .unwrap()
                 .try_lock_exclusive()
                 .is_err(),
